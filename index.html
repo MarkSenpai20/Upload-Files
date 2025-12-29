@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Vantal P2P | Universal</title>
+    <title>Vantal P2P | Corrupt-Free</title>
     
     <!-- Tailwind & Icons -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -20,7 +20,7 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .fade-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-        .progress-fill { transition: width 0.2s linear; }
+        .progress-fill { transition: width 0.1s linear; }
         
         /* Mobile Tweaks */
         @media (max-width: 640px) {
@@ -193,7 +193,7 @@
             peer.on('open', (id) => {
                 document.getElementById('my-peer-id').innerText = id;
                 setStatus('ONLINE', 'green');
-                log("Shop Initialized. Waiting for sender...");
+                log("Shop Initialized.");
             });
 
             peer.on('connection', (c) => {
@@ -230,14 +230,15 @@
         }
 
         function startTransfer(data) {
-            log(`Incoming: ${data.name} (${data.size} bytes) Type: ${data.mime}`);
+            log(`Incoming: ${data.name} (${data.size} bytes)`);
             
             incomingTransfers[data.id] = {
                 name: data.name,
                 size: data.size,
-                mime: data.mime || 'application/octet-stream', // Capture MIME
-                chunks: [],
-                receivedSize: 0,
+                mime: data.mime || 'application/octet-stream',
+                chunks: new Array(data.totalChunks), // PRE-ALLOCATE SLOTS
+                receivedChunks: 0,
+                totalChunks: data.totalChunks,
                 lastPercent: 0
             };
 
@@ -273,10 +274,11 @@
             const transfer = incomingTransfers[data.id];
             if(!transfer) return;
 
-            transfer.chunks.push(data.data); 
-            transfer.receivedSize += data.data.byteLength;
+            // CRITICAL FIX: Place chunk in correct index
+            transfer.chunks[data.index] = data.data; 
+            transfer.receivedChunks++;
 
-            const percent = Math.floor((transfer.receivedSize / transfer.size) * 100);
+            const percent = Math.floor((transfer.receivedChunks / transfer.totalChunks) * 100);
             
             if (percent > transfer.lastPercent + 2 || percent === 100) {
                 transfer.lastPercent = percent;
@@ -290,9 +292,17 @@
 
         function finishTransfer(data) {
             const transfer = incomingTransfers[data.id];
-            log(`Finished: ${transfer.name}`);
+            
+            // Integrity Check
+            if (transfer.receivedChunks !== transfer.totalChunks) {
+                log(`Error: Missing chunks for ${transfer.name}. Got ${transfer.receivedChunks}/${transfer.totalChunks}`);
+                alert("File transfer incomplete/corrupted. Please retry.");
+                return;
+            }
 
-            // Create Blob with proper MIME type
+            log(`Finished & Verified: ${transfer.name}`);
+
+            // Reassemble Blob strictly in order
             const blob = new Blob(transfer.chunks, { type: transfer.mime });
             receivedFiles.push({ name: transfer.name, blob: blob });
             
@@ -306,23 +316,22 @@
                 card.querySelector('.status-text').innerText = "Complete";
                 card.querySelector('.status-text').classList.add('text-green-400');
                 
-                // Icon Update
                 const iconBox = card.querySelector('.icon-box');
                 iconBox.innerHTML = '<i class="fa-solid fa-check text-green-500"></i>';
                 iconBox.classList.add('bg-green-500/10');
                 
-                // Activate Download Button
                 const btn = document.getElementById(`btn-${data.id}`);
                 btn.classList.remove('hidden', 'bg-slate-700', 'text-slate-500');
                 btn.classList.add('bg-green-500', 'text-white', 'hover:bg-green-400', 'pulse-once');
                 
-                // Attach Click Listener with Blob closure
                 btn.onclick = (e) => {
                     e.stopPropagation();
                     saveAs(blob, transfer.name);
                 };
             }
             
+            // Free memory but keep blob ref
+            // transfer.chunks = null; 
             delete incomingTransfers[data.id];
         }
 
@@ -397,23 +406,26 @@
                 const progressBar = document.getElementById('sender-bar');
                 const percentText = document.getElementById('sender-percent');
 
-                // 1. Send Start with MIME
+                const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+                // 1. Send Start
                 conn.send({ 
                     type: 'start', 
                     id: transferId, 
                     name: file.name, 
                     size: file.size,
-                    mime: file.type // Send MIME type
+                    mime: file.type,
+                    totalChunks: totalChunks
                 });
 
                 const reader = new FileReader();
                 reader.onload = async (e) => {
                     const buffer = e.target.result;
+                    let chunkIndex = 0;
                     let offset = 0;
-                    const totalSize = buffer.byteLength;
 
                     // 2. Buffered Send Loop
-                    while (offset < totalSize) {
+                    while (offset < file.size) {
                         // Backpressure Check
                         if (conn.dataChannel.bufferedAmount > 16 * 1024 * 1024) { 
                             await new Promise(r => setTimeout(r, 50));
@@ -426,11 +438,13 @@
                         conn.send({
                             type: 'chunk',
                             id: transferId,
+                            index: chunkIndex, // CRITICAL: Send Index
                             data: chunk
                         });
+                        chunkIndex++;
 
                         // UI Update
-                        const percent = Math.min(100, Math.round((offset / totalSize) * 100));
+                        const percent = Math.min(100, Math.round((offset / file.size) * 100));
                         progressBar.style.width = `${percent}%`;
                         percentText.innerText = `${percent}%`;
 
