@@ -3,14 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Vantal P2P | Corrupt-Free</title>
+    <title>Vantal Cloud | GitHub Storage</title>
     
     <!-- Tailwind & Icons -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
-    
-    <!-- PeerJS -->
-    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     
     <!-- Zip Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -20,13 +17,8 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .fade-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-        .progress-fill { transition: width 0.1s linear; }
-        
-        /* Mobile Tweaks */
-        @media (max-width: 640px) {
-            .mobile-stack { flex-direction: column; align-items: stretch; }
-            .mobile-full { width: 100%; }
-        }
+        .pulse-ring { animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+        @keyframes pulse-ring { 0% { transform: scale(0.8); opacity: 0.5; } 100% { transform: scale(2); opacity: 0; } }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-200 font-sans h-screen flex flex-col overflow-hidden">
@@ -35,450 +27,325 @@
     <header class="bg-slate-800 border-b border-slate-700 p-3 md:p-4 flex justify-between items-center z-50 shadow-lg relative shrink-0">
         <div class="flex items-center gap-3">
             <div class="relative">
-                <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white text-lg shadow-lg shadow-blue-900/40">
-                    <i class="fa-solid fa-bolt"></i>
+                <div class="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center text-white text-lg shadow-lg shadow-purple-900/40">
+                    <i class="fa-brands fa-github"></i>
                 </div>
                 <!-- Status Dot -->
-                <div id="status-dot" class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-slate-800 transition-colors duration-300"></div>
+                <div id="status-dot" class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-slate-800"></div>
             </div>
             <div>
-                <h1 class="font-bold text-white text-lg leading-tight tracking-tight">Vantal<span class="text-blue-500">Studios</span></h1>
-                <p id="connection-status" class="text-[10px] text-slate-400 font-mono">OFFLINE</p>
+                <h1 class="font-bold text-white text-lg leading-tight tracking-tight">Vantal<span class="text-purple-500">Cloud</span></h1>
+                <p class="text-[10px] text-slate-400 font-mono">SECURE STORAGE</p>
             </div>
         </div>
-        <div id="shop-controls" class="hidden">
-            <button onclick="downloadAll()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-xs font-bold shadow-lg shadow-emerald-900/20 flex items-center gap-2 transition-all active:scale-95 whitespace-nowrap">
-                <i class="fa-solid fa-file-zipper"></i> <span class="hidden sm:inline">Download All</span><span class="sm:hidden">Zip</span>
-            </button>
+        <div id="admin-btn-container">
+            <button onclick="showLogin()" class="text-xs text-slate-500 hover:text-white">Admin</button>
         </div>
     </header>
 
     <!-- Main Content -->
     <div class="flex-1 flex overflow-hidden relative">
         
-        <!-- SCREEN 1: MODE SELECTION -->
-        <div id="screen-setup" class="w-full flex-1 flex flex-col items-center justify-center p-6 absolute inset-0 z-40 bg-slate-900 transition-transform duration-300 overflow-y-auto">
-            <div class="max-w-md w-full grid grid-cols-1 gap-4">
-                <h2 class="text-2xl font-bold text-center text-white mb-4">Select Mode</h2>
-                
-                <button onclick="setupMode('sender')" class="group relative bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-blue-500 p-6 rounded-2xl text-left transition-all shadow-xl active:scale-95">
-                    <div class="absolute right-6 top-6 text-3xl text-slate-600 group-hover:text-blue-500 transition-colors">
-                        <i class="fa-solid fa-paper-plane"></i>
-                    </div>
-                    <h3 class="text-xl font-bold text-white mb-1">Customer</h3>
-                    <p class="text-slate-400 text-sm">I want to send files</p>
-                </button>
-
-                <button onclick="setupMode('receiver')" class="group relative bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-green-500 p-6 rounded-2xl text-left transition-all shadow-xl active:scale-95">
-                    <div class="absolute right-6 top-6 text-3xl text-slate-600 group-hover:text-green-500 transition-colors">
-                        <i class="fa-solid fa-shop"></i>
-                    </div>
-                    <h3 class="text-xl font-bold text-white mb-1">Shop (Receiver)</h3>
-                    <p class="text-slate-400 text-sm">I want to receive files</p>
-                </button>
-            </div>
-        </div>
-
-        <!-- SCREEN 2: SENDER -->
-        <div id="screen-sender" class="w-full flex-1 flex flex-col items-center justify-center p-4 md:p-6 absolute inset-0 z-30 bg-slate-900 translate-x-full transition-transform duration-300 overflow-y-auto">
+        <!-- SCREEN 1: CUSTOMER UPLOAD -->
+        <div id="screen-upload" class="w-full flex-1 flex flex-col items-center justify-center p-6 absolute inset-0 z-30 bg-slate-900 transition-transform duration-300 overflow-y-auto">
             <div class="max-w-md w-full bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
                 
-                <!-- Connect -->
-                <div id="sender-step-1">
-                    <h3 class="font-bold text-white mb-4 flex items-center gap-2">
-                        <i class="fa-solid fa-link text-blue-500"></i> Connect to Shop
-                    </h3>
-                    <div class="flex gap-2">
-                        <input type="text" id="target-id" placeholder="Shop ID (e.g. vantal)" class="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:border-blue-500 outline-none font-mono">
-                        <button onclick="connectToShop()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 rounded-lg font-bold transition-colors active:scale-95">Join</button>
+                <h2 class="text-2xl font-bold text-center text-white mb-1">File Upload</h2>
+                <p class="text-slate-400 text-center text-sm mb-6">Files are saved directly to GitHub</p>
+
+                <!-- Name Input -->
+                <div class="mb-4">
+                    <label class="text-xs font-bold text-slate-500 uppercase ml-1">Your Name</label>
+                    <input type="text" id="uploader-name" placeholder="e.g. Juan Cruz" class="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white focus:border-purple-500 outline-none transition-colors">
+                </div>
+
+                <!-- Dropzone -->
+                <div class="border-2 border-dashed border-slate-600 hover:border-purple-500 bg-slate-900/50 rounded-xl h-40 flex flex-col items-center justify-center cursor-pointer transition-colors group relative active:bg-slate-800" onclick="document.getElementById('file-input').click()">
+                    <input type="file" id="file-input" class="hidden" multiple onchange="handleFileSelect(this.files)">
+                    <div id="drop-content" class="text-center">
+                        <i class="fa-solid fa-cloud-arrow-up text-3xl text-slate-500 group-hover:text-purple-500 mb-2 transition-colors"></i>
+                        <p class="text-slate-300 font-bold text-sm group-hover:text-white">Tap to Upload</p>
                     </div>
                 </div>
 
-                <!-- Upload -->
-                <div id="sender-step-2" class="hidden mt-6 fade-in">
-                    <div class="border-2 border-dashed border-slate-600 hover:border-blue-500 bg-slate-900/50 rounded-xl h-48 flex flex-col items-center justify-center cursor-pointer transition-colors group relative active:bg-slate-800" onclick="document.getElementById('file-input').click()">
-                        <input type="file" id="file-input" class="hidden" multiple onchange="startUploadQueue(this.files)">
-                        <div id="drop-icon">
-                            <i class="fa-solid fa-cloud-arrow-up text-4xl text-slate-500 group-hover:text-blue-500 mb-3 transition-colors"></i>
-                            <p class="text-slate-300 font-bold group-hover:text-white">Tap to Upload</p>
-                        </div>
-                        <div id="drop-spinner" class="hidden text-center">
-                            <i class="fa-solid fa-circle-notch fa-spin text-4xl text-blue-500 mb-3"></i>
-                            <p class="text-blue-400 font-bold">Sending...</p>
-                        </div>
-                    </div>
-                    
-                    <!-- Sender Progress -->
-                    <div id="sender-progress-container" class="mt-4 hidden">
-                         <div class="flex justify-between text-xs text-slate-400 mb-1">
-                             <span id="sender-filename" class="truncate max-w-[200px]">filename.jpg</span>
-                             <span id="sender-percent">0%</span>
-                         </div>
-                         <div class="h-2 w-full bg-slate-700 rounded-full overflow-hidden">
-                             <div id="sender-bar" class="h-full bg-blue-500 w-0 progress-fill"></div>
-                         </div>
-                    </div>
-                </div>
-                
-                <button onclick="location.reload()" class="mt-4 w-full text-slate-500 text-xs hover:text-white">Cancel / Restart</button>
+                <!-- Upload List -->
+                <div id="upload-list" class="mt-4 space-y-2 max-h-40 overflow-y-auto hidden"></div>
+
+                <!-- Action Button -->
+                <button id="btn-upload" onclick="startUploadProcess()" class="w-full mt-4 bg-purple-600 hover:bg-purple-500 text-white py-3 rounded-xl font-bold shadow-lg shadow-purple-900/20 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed hidden">
+                    Upload to Cloud
+                </button>
 
             </div>
         </div>
 
-        <!-- SCREEN 3: RECEIVER -->
-        <div id="screen-receiver" class="w-full flex-1 flex flex-col absolute inset-0 z-30 bg-slate-900 translate-x-full transition-transform duration-300">
-            <!-- Sidebar / ID Display -->
-            <div class="bg-slate-800 border-b border-slate-700 p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
-                <div class="flex flex-col md:flex-row md:items-center gap-2 md:gap-3 w-full">
-                    <span class="text-slate-400 text-sm whitespace-nowrap">Shop ID:</span>
-                    <div class="bg-slate-900 border border-slate-600 px-4 py-2 rounded-lg font-mono text-green-400 font-bold text-lg select-all w-full md:w-auto text-center md:text-left break-all" id="my-peer-id">Generating...</div>
+        <!-- SCREEN 2: ADMIN DASHBOARD -->
+        <div id="screen-admin" class="w-full flex-1 flex flex-col absolute inset-0 z-40 bg-slate-900 translate-x-full transition-transform duration-300">
+            <!-- Toolbar -->
+            <div class="bg-slate-800 border-b border-slate-700 p-3 flex justify-between items-center shrink-0">
+                <div class="flex items-center gap-2">
+                    <button onclick="showUploadScreen()" class="w-8 h-8 rounded-full bg-slate-700 text-white flex items-center justify-center"><i class="fa-solid fa-arrow-left"></i></button>
+                    <h2 class="font-bold text-white">Repository Files</h2>
                 </div>
-                <div class="text-xs text-slate-500 flex items-center gap-2 whitespace-nowrap">
-                    <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div> 
-                    Waiting...
-                </div>
+                <button onclick="fetchRepoFiles()" class="w-8 h-8 rounded-lg bg-purple-600 text-white flex items-center justify-center shadow-lg"><i class="fa-solid fa-rotate"></i></button>
             </div>
 
             <!-- File List -->
-            <div id="file-list" class="flex-1 overflow-y-auto p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 content-start pb-20"></div>
+            <div id="repo-list" class="flex-1 overflow-y-auto p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 content-start pb-20">
+                <div class="col-span-full text-center py-20 text-slate-500">
+                    <i class="fa-brands fa-github text-4xl mb-2 opacity-50"></i>
+                    <p>Click refresh to load files</p>
+                </div>
+            </div>
         </div>
+
     </div>
-    
-    <!-- SYSTEM LOG (Debug Panel) -->
-    <div id="system-log" class="fixed bottom-0 left-0 w-full h-32 bg-slate-950 border-t border-slate-800 p-2 font-mono text-[10px] text-green-500 overflow-y-auto z-50 opacity-90 hidden"></div>
-    <button onclick="document.getElementById('system-log').classList.toggle('hidden')" class="fixed bottom-2 right-2 z-50 bg-slate-800 text-slate-400 p-2 rounded-lg text-xs hover:text-white"><i class="fa-solid fa-terminal"></i></button>
 
     <!-- LOGIC -->
     <script>
-        // --- CONFIGURATION ---
-        const CHUNK_SIZE = 16 * 1024; // 16KB Safe Chunk Size
+        // ==========================================================
+        // 🔐 SECURITY CONFIGURATION (EDIT THIS)
+        // ==========================================================
         
-        let peer = null;
-        let conn = null;
-        let receivedFiles = [];
-        let incomingTransfers = {};
+        // 1. REPO DETAILS
+        const REPO_OWNER = "YOUR_GITHUB_USERNAME"; // e.g. "MarkSenpai20"
+        const REPO_NAME  = "YOUR_REPO_NAME";       // e.g. "Vantal-Storage"
+        const BRANCH     = "main";                 // usually "main" or "master"
 
-        // Logging
-        function log(msg) {
-            const el = document.getElementById('system-log');
-            const time = new Date().toLocaleTimeString();
-            el.innerHTML += `<div class="mb-0.5 border-b border-slate-800/50 pb-0.5"><span class="text-slate-500">[${time}]</span> ${msg}</div>`;
-            el.scrollTop = el.scrollHeight;
-            console.log(msg);
+        // 2. SPLIT TOKEN (Obfuscation)
+        // Split your token into parts so scripts can't easily scrape it
+        const _p1 = "ghp_PASTE_FIRST_HALF_HERE"; 
+        const _p2 = "PASTE_SECOND_HALF_HERE";
+        
+        // 3. Admin Password (Simple frontend check)
+        const ADMIN_PASS = "admin123";
+
+        // ==========================================================
+        // END CONFIGURATION
+        // ==========================================================
+
+        const GITHUB_TOKEN = _p1 + _p2; // Reassemble
+        let selectedFiles = [];
+
+        // --- UPLOAD LOGIC ---
+
+        function handleFileSelect(files) {
+            selectedFiles = Array.from(files);
+            renderUploadList();
+            
+            const btn = document.getElementById('btn-upload');
+            if (files.length > 0) btn.classList.remove('hidden');
+            else btn.classList.add('hidden');
         }
 
-        function setupMode(mode) {
-            document.getElementById('screen-setup').classList.add('-translate-y-full');
-            if (mode === 'sender') document.getElementById('screen-sender').classList.remove('translate-x-full');
-            else {
-                document.getElementById('screen-receiver').classList.remove('translate-x-full');
-                document.getElementById('shop-controls').classList.remove('hidden');
-                initShopMode();
+        function renderUploadList() {
+            const list = document.getElementById('upload-list');
+            list.innerHTML = '';
+            list.classList.remove('hidden');
+
+            selectedFiles.forEach((file, index) => {
+                const div = document.createElement('div');
+                div.className = "bg-slate-900 border border-slate-700 p-2 rounded flex justify-between items-center text-xs";
+                div.innerHTML = `
+                    <div class="flex items-center gap-2 overflow-hidden">
+                        <i class="fa-solid fa-file text-slate-500"></i>
+                        <span class="truncate text-slate-300 max-w-[150px]">${file.name}</span>
+                    </div>
+                    <span class="text-slate-500">${(file.size/1024).toFixed(0)}KB</span>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        async function startUploadProcess() {
+            const nameInput = document.getElementById('uploader-name');
+            const name = nameInput.value.trim().replace(/[^a-zA-Z0-9]/g, "_") || "Guest";
+            const btn = document.getElementById('btn-upload');
+            
+            if(selectedFiles.length === 0) return;
+
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Uploading...`;
+
+            let successCount = 0;
+
+            for (const file of selectedFiles) {
+                try {
+                    // 1. Convert to Base64
+                    const base64 = await toBase64(file);
+                    
+                    // 2. Create Path: uploads/Name/Timestamp_Filename
+                    const timestamp = new Date().getTime();
+                    const path = `uploads/${name}/${timestamp}_${file.name}`;
+                    
+                    // 3. Upload to GitHub
+                    await uploadToGitHub(path, base64, `Upload by ${name}`);
+                    successCount++;
+                } catch (err) {
+                    console.error(err);
+                    alert(`Failed to upload ${file.name}: ${err.message}`);
+                }
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = "Upload to Cloud";
+            
+            if(successCount === selectedFiles.length) {
+                alert("✅ All files uploaded successfully!");
+                selectedFiles = [];
+                renderUploadList();
+                document.getElementById('btn-upload').classList.add('hidden');
+                nameInput.value = '';
             }
         }
 
-        // ===============================================
-        // SHOP (RECEIVER)
-        // ===============================================
-        function initShopMode() {
-            const preferredId = prompt("Enter Shop ID (e.g. vantal):", "vantal");
-            if(!preferredId) return location.reload();
-
-            // Force Reliable Mode
-            peer = new Peer(preferredId, {
-                debug: 2,
-                config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] } 
-            });
-
-            peer.on('open', (id) => {
-                document.getElementById('my-peer-id').innerText = id;
-                setStatus('ONLINE', 'green');
-                log("Shop Initialized.");
-            });
-
-            peer.on('connection', (c) => {
-                conn = c;
-                setupReceiverConnection(conn);
-            });
-            
-            peer.on('error', (err) => {
-                alert("Error: " + err.type);
-                log("Peer Error: " + err);
+        function toBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => {
+                    // Remove "data:*/*;base64," prefix
+                    const content = reader.result.toString().split(',')[1]; 
+                    resolve(content);
+                };
+                reader.onerror = error => reject(error);
             });
         }
 
-        function setupReceiverConnection(connection) {
-            connection.on('open', () => {
-                setStatus('CONNECTED', 'blue');
-                log("Customer connected via DataChannel");
-            });
-
-            connection.on('data', (data) => {
-                if (data.type === 'start') {
-                    startTransfer(data);
-                } else if (data.type === 'chunk') {
-                    processChunk(data);
-                } else if (data.type === 'end') {
-                    finishTransfer(data);
-                }
-            });
-
-            connection.on('close', () => {
-                setStatus('ONLINE', 'green');
-                log("Customer disconnected");
-            });
-        }
-
-        function startTransfer(data) {
-            log(`Incoming: ${data.name} (${data.size} bytes)`);
-            
-            incomingTransfers[data.id] = {
-                name: data.name,
-                size: data.size,
-                mime: data.mime || 'application/octet-stream',
-                chunks: new Array(data.totalChunks), // PRE-ALLOCATE SLOTS
-                receivedChunks: 0,
-                totalChunks: data.totalChunks,
-                lastPercent: 0
+        async function uploadToGitHub(path, content, message) {
+            const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${path}`;
+            const body = {
+                message: message,
+                content: content,
+                branch: BRANCH
             };
 
-            // Create UI Card
-            const sizeMB = (data.size / (1024*1024)).toFixed(2);
-            const div = document.createElement('div');
-            div.id = `card-${data.id}`;
-            div.className = "bg-slate-800 border border-slate-700 p-4 rounded-xl fade-in relative overflow-hidden flex flex-col justify-center min-h-[100px]";
-            div.innerHTML = `
-                <div class="flex items-center gap-3 relative z-10 w-full pr-10">
-                    <div class="w-12 h-12 bg-slate-700 rounded-lg flex items-center justify-center text-slate-500 shrink-0 icon-box text-xl">
-                        <i class="fa-solid fa-spinner fa-spin"></i>
-                    </div>
-                    <div class="flex-1 overflow-hidden">
-                        <h4 class="font-bold text-white text-sm truncate w-full" title="${data.name}">${data.name}</h4>
-                        <div class="flex justify-between text-[10px] text-slate-400 mt-1">
-                            <span>${sizeMB} MB</span>
-                            <span class="status-text font-mono">0%</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="absolute bottom-0 left-0 h-1 bg-blue-500 w-0 progress-bar transition-all duration-100"></div>
-                
-                <!-- Download Button (Hidden Initially) -->
-                <button id="btn-${data.id}" class="absolute right-3 top-1/2 -translate-y-1/2 bg-slate-700 text-slate-500 hover:bg-slate-600 hover:text-white p-3 rounded-full transition-all duration-300 hidden active:scale-90 shadow-lg z-20">
-                    <i class="fa-solid fa-download"></i>
-                </button>
-            `;
-            document.getElementById('file-list').prepend(div);
+            const response = await fetch(url, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `token ${GITHUB_TOKEN}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.message);
+            }
+            return response.json();
         }
 
-        function processChunk(data) {
-            const transfer = incomingTransfers[data.id];
-            if(!transfer) return;
+        // --- ADMIN / DOWNLOAD LOGIC ---
 
-            // CRITICAL FIX: Place chunk in correct index
-            transfer.chunks[data.index] = data.data; 
-            transfer.receivedChunks++;
-
-            const percent = Math.floor((transfer.receivedChunks / transfer.totalChunks) * 100);
-            
-            if (percent > transfer.lastPercent + 2 || percent === 100) {
-                transfer.lastPercent = percent;
-                const card = document.getElementById(`card-${data.id}`);
-                if(card) {
-                    card.querySelector('.progress-bar').style.width = `${percent}%`;
-                    card.querySelector('.status-text').innerText = `${percent}%`;
-                }
+        function showLogin() {
+            const pass = prompt("Enter Admin Password:");
+            if (pass === ADMIN_PASS) {
+                document.getElementById('screen-admin').classList.remove('translate-x-full');
+                fetchRepoFiles();
+            } else {
+                alert("Access Denied");
             }
         }
 
-        function finishTransfer(data) {
-            const transfer = incomingTransfers[data.id];
+        function showUploadScreen() {
+            document.getElementById('screen-admin').classList.add('translate-x-full');
+        }
+
+        async function fetchRepoFiles() {
+            const list = document.getElementById('repo-list');
+            list.innerHTML = `<div class="col-span-full text-center py-10"><i class="fa-solid fa-spinner fa-spin text-purple-500 text-2xl"></i></div>`;
+
+            // Note: This fetch relies on GitHub's recursive tree API to get all files in 'uploads' folder
+            try {
+                // Get the SHA of the 'main' branch
+                const branchRes = await apiCall(`/git/ref/heads/${BRANCH}`);
+                const treeSha = branchRes.object.sha;
+
+                // Get the Tree recursively
+                const treeRes = await apiCall(`/git/trees/${treeSha}?recursive=1`);
+                
+                // Filter only files in 'uploads/'
+                const uploadFiles = treeRes.tree.filter(item => item.path.startsWith('uploads/') && item.type === 'blob');
+
+                renderAdminFiles(uploadFiles);
+
+            } catch (err) {
+                console.error(err);
+                list.innerHTML = `<div class="col-span-full text-center text-red-400">Error: ${err.message}<br>Check Repo Name/Token</div>`;
+            }
+        }
+
+        function renderAdminFiles(files) {
+            const list = document.getElementById('repo-list');
+            list.innerHTML = '';
             
-            // Integrity Check
-            if (transfer.receivedChunks !== transfer.totalChunks) {
-                log(`Error: Missing chunks for ${transfer.name}. Got ${transfer.receivedChunks}/${transfer.totalChunks}`);
-                alert("File transfer incomplete/corrupted. Please retry.");
+            // Group by User (folder name)
+            // Path format: uploads/UserName/Timestamp_File
+            const grouped = {};
+
+            files.forEach(file => {
+                const parts = file.path.split('/');
+                if (parts.length >= 3) {
+                    const user = parts[1];
+                    if (!grouped[user]) grouped[user] = [];
+                    grouped[user].push(file);
+                }
+            });
+
+            if (Object.keys(grouped).length === 0) {
+                list.innerHTML = `<div class="col-span-full text-center py-10 text-slate-500">No uploads found.</div>`;
                 return;
             }
 
-            log(`Finished & Verified: ${transfer.name}`);
+            // Create Cards
+            for (const [user, userFiles] of Object.entries(grouped)) {
+                // Sort by time (newest first based on path timestamp)
+                userFiles.sort((a, b) => b.path.localeCompare(a.path));
 
-            // Reassemble Blob strictly in order
-            const blob = new Blob(transfer.chunks, { type: transfer.mime });
-            receivedFiles.push({ name: transfer.name, blob: blob });
-            
-            // Finalize Card UI
-            const card = document.getElementById(`card-${data.id}`);
-            if(card) {
-                card.classList.add('border-green-500/50');
-                card.querySelector('.progress-bar').classList.add('bg-green-500');
-                card.querySelector('.progress-bar').style.width = '100%';
-                
-                card.querySelector('.status-text').innerText = "Complete";
-                card.querySelector('.status-text').classList.add('text-green-400');
-                
-                const iconBox = card.querySelector('.icon-box');
-                iconBox.innerHTML = '<i class="fa-solid fa-check text-green-500"></i>';
-                iconBox.classList.add('bg-green-500/10');
-                
-                const btn = document.getElementById(`btn-${data.id}`);
-                btn.classList.remove('hidden', 'bg-slate-700', 'text-slate-500');
-                btn.classList.add('bg-green-500', 'text-white', 'hover:bg-green-400', 'pulse-once');
-                
-                btn.onclick = (e) => {
-                    e.stopPropagation();
-                    saveAs(blob, transfer.name);
-                };
+                const card = document.createElement('div');
+                card.className = "bg-slate-800 border border-slate-700 rounded-xl overflow-hidden fade-in";
+                card.innerHTML = `
+                    <div class="bg-slate-900/50 p-3 border-b border-slate-700 flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid fa-user text-purple-400"></i>
+                            <span class="font-bold text-slate-200 text-sm">${user}</span>
+                        </div>
+                        <span class="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">${userFiles.length}</span>
+                    </div>
+                    <div class="p-2 space-y-1 max-h-48 overflow-y-auto">
+                        ${userFiles.map(f => {
+                            const filename = f.path.split('/').pop();
+                            const cleanName = filename.substring(filename.indexOf('_') + 1); // Remove timestamp prefix
+                            // Generate raw download URL
+                            const downloadUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/${f.path}`;
+                            
+                            return `
+                                <div class="flex justify-between items-center p-2 hover:bg-slate-700/50 rounded group">
+                                    <div class="flex items-center gap-2 overflow-hidden">
+                                        <i class="fa-solid fa-file text-slate-500 text-xs"></i>
+                                        <a href="${downloadUrl}" target="_blank" class="truncate text-xs text-blue-400 hover:underline cursor-pointer" title="${cleanName}">${cleanName}</a>
+                                    </div>
+                                    <a href="${downloadUrl}" download="${cleanName}" class="text-slate-500 hover:text-green-400">
+                                        <i class="fa-solid fa-download"></i>
+                                    </a>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+                list.appendChild(card);
             }
-            
-            // Free memory but keep blob ref
-            // transfer.chunks = null; 
-            delete incomingTransfers[data.id];
         }
 
-        // ===============================================
-        // CUSTOMER (SENDER)
-        // ===============================================
-        function connectToShop() {
-            const targetId = document.getElementById('target-id').value.trim();
-            if(!targetId) return alert("Enter ID");
-
-            log("Connecting to: " + targetId);
-            peer = new Peer({ debug: 2 });
-
-            peer.on('open', () => {
-                conn = peer.connect(targetId, { reliable: true });
-                setupSenderConnection(conn);
+        async function apiCall(endpoint) {
+            const response = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}${endpoint}`, {
+                headers: { 'Authorization': `token ${GITHUB_TOKEN}` }
             });
-
-            peer.on('error', err => {
-                alert("Connection failed: " + err.type);
-                log("Error: " + err);
-            });
+            if (!response.ok) throw new Error((await response.json()).message);
+            return response.json();
         }
 
-        function setupSenderConnection(connection) {
-            connection.on('open', () => {
-                document.getElementById('sender-step-1').classList.add('hidden');
-                document.getElementById('sender-step-2').classList.remove('hidden');
-                setStatus('CONNECTED', 'blue');
-                log("Connected to Shop!");
-            });
-
-            connection.on('close', () => {
-                alert("Shop disconnected");
-                location.reload();
-            });
-
-            connection.on('error', err => log("Conn Error: " + err));
-        }
-
-        async function startUploadQueue(files) {
-            const input = document.getElementById('file-input');
-            const dropIcon = document.getElementById('drop-icon');
-            const dropSpinner = document.getElementById('drop-spinner');
-            
-            dropIcon.classList.add('hidden');
-            dropSpinner.classList.remove('hidden');
-            input.disabled = true;
-
-            for (let file of files) {
-                await sendSingleFile(file);
-            }
-
-            dropIcon.classList.remove('hidden');
-            dropSpinner.classList.add('hidden');
-            input.disabled = false;
-            input.value = '';
-            
-            document.getElementById('sender-filename').innerText = "All Files Sent!";
-            document.getElementById('sender-percent').innerText = "100%";
-            document.getElementById('sender-bar').style.width = "100%";
-        }
-
-        function sendSingleFile(file) {
-            return new Promise((resolve) => {
-                const transferId = Math.random().toString(36).substr(2, 9);
-                log(`Preparing ${file.name}...`);
-
-                // UI
-                document.getElementById('sender-progress-container').classList.remove('hidden');
-                document.getElementById('sender-filename').innerText = file.name;
-                const progressBar = document.getElementById('sender-bar');
-                const percentText = document.getElementById('sender-percent');
-
-                const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-
-                // 1. Send Start
-                conn.send({ 
-                    type: 'start', 
-                    id: transferId, 
-                    name: file.name, 
-                    size: file.size,
-                    mime: file.type,
-                    totalChunks: totalChunks
-                });
-
-                const reader = new FileReader();
-                reader.onload = async (e) => {
-                    const buffer = e.target.result;
-                    let chunkIndex = 0;
-                    let offset = 0;
-
-                    // 2. Buffered Send Loop
-                    while (offset < file.size) {
-                        // Backpressure Check
-                        if (conn.dataChannel.bufferedAmount > 16 * 1024 * 1024) { 
-                            await new Promise(r => setTimeout(r, 50));
-                            continue;
-                        }
-
-                        const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
-                        offset += CHUNK_SIZE;
-
-                        conn.send({
-                            type: 'chunk',
-                            id: transferId,
-                            index: chunkIndex, // CRITICAL: Send Index
-                            data: chunk
-                        });
-                        chunkIndex++;
-
-                        // UI Update
-                        const percent = Math.min(100, Math.round((offset / file.size) * 100));
-                        progressBar.style.width = `${percent}%`;
-                        percentText.innerText = `${percent}%`;
-
-                        // Breath
-                        if (offset % (CHUNK_SIZE * 5) === 0) await new Promise(r => setTimeout(r, 1));
-                    }
-
-                    // 3. Send End
-                    conn.send({ type: 'end', id: transferId });
-                    log(`Sent ${file.name}`);
-                    resolve();
-                };
-                reader.readAsArrayBuffer(file);
-            });
-        }
-
-        // ===============================================
-        // UTILS
-        // ===============================================
-        function setStatus(msg, color) {
-            const el = document.getElementById('connection-status');
-            const dot = document.getElementById('status-dot');
-            el.innerText = msg;
-            
-            const colorClass = color === 'green' ? 'bg-green-500' : (color === 'blue' ? 'bg-blue-500' : 'bg-red-500');
-            dot.className = `absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-slate-900 ${colorClass} ${color === 'blue' ? 'animate-pulse' : ''}`;
-        }
-
-        function downloadAll() {
-            if(receivedFiles.length === 0) return alert("No files received.");
-            const zip = new JSZip();
-            receivedFiles.forEach(f => zip.file(f.name, f.blob));
-            zip.generateAsync({type:"blob"}).then(c => saveAs(c, "vantal_files.zip"));
-        }
     </script>
 </body>
 </html>
