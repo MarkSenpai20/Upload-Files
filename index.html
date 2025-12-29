@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vantal Studios | Direct Transfer</title>
+    
+    <!-- Tailwind & Icons -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    
+    <!-- PeerJS (The Magic: Allows direct browser-to-browser connection) -->
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    
+    <!-- Zip Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .pulse-ring { animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+        @keyframes pulse-ring { 0% { transform: scale(0.8); opacity: 0.5; } 100% { transform: scale(2); opacity: 0; } }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-200 font-sans h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center z-50 shadow-lg relative">
+        <div class="flex items-center gap-3">
+            <div class="relative">
+                <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white text-lg shadow-lg shadow-blue-900/40">
+                    <i class="fa-solid fa-bolt"></i>
+                </div>
+                <!-- Status Dot -->
+                <div id="status-dot" class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-slate-500 rounded-full border-2 border-slate-800 transition-colors duration-300"></div>
+            </div>
+            <div>
+                <h1 class="font-bold text-white text-lg leading-tight tracking-tight">Vantal<span class="text-blue-500">Studios</span></h1>
+                <p id="connection-status" class="text-[10px] text-slate-400 font-mono">DISCONNECTED</p>
+            </div>
+        </div>
+        <div id="shop-controls" class="hidden">
+            <button onclick="downloadAll()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg shadow-emerald-900/20 flex items-center gap-2 transition-all active:scale-95">
+                <i class="fa-solid fa-file-zipper"></i> Download All
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex overflow-hidden relative">
+        
+        <!-- SCREEN 1: MODE SELECTION -->
+        <div id="screen-setup" class="w-full flex-1 flex flex-col items-center justify-center p-6 absolute inset-0 z-40 bg-slate-900 transition-transform duration-300">
+            <div class="max-w-md w-full grid grid-cols-1 gap-4">
+                <h2 class="text-2xl font-bold text-center text-white mb-4">Select Mode</h2>
+                
+                <!-- Customer Button -->
+                <button onclick="setupMode('sender')" class="group relative bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-blue-500 p-6 rounded-2xl text-left transition-all shadow-xl">
+                    <div class="absolute right-6 top-6 text-3xl text-slate-600 group-hover:text-blue-500 transition-colors">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-white mb-1">I am a Customer</h3>
+                    <p class="text-slate-400 text-sm">I want to send files to the shop.</p>
+                </button>
+
+                <!-- Shop Button -->
+                <button onclick="setupMode('receiver')" class="group relative bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-green-500 p-6 rounded-2xl text-left transition-all shadow-xl">
+                    <div class="absolute right-6 top-6 text-3xl text-slate-600 group-hover:text-green-500 transition-colors">
+                        <i class="fa-solid fa-shop"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-white mb-1">I am the Shop</h3>
+                    <p class="text-slate-400 text-sm">I want to receive files.</p>
+                </button>
+            </div>
+        </div>
+
+        <!-- SCREEN 2: CUSTOMER (SENDER) -->
+        <div id="screen-sender" class="w-full flex-1 flex flex-col items-center justify-center p-6 absolute inset-0 z-30 bg-slate-900 translate-x-full transition-transform duration-300">
+            <div class="max-w-md w-full bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
+                
+                <!-- Step 1: Connect -->
+                <div id="sender-step-1">
+                    <h3 class="font-bold text-white mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-link text-blue-500"></i> Connect to Shop
+                    </h3>
+                    <div class="flex gap-2">
+                        <input type="text" id="target-id" placeholder="Enter Shop ID (e.g. vantal)" class="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:border-blue-500 outline-none font-mono">
+                        <button onclick="connectToShop()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 rounded-lg font-bold transition-colors">
+                            Join
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 2: Dropzone (Hidden until connected) -->
+                <div id="sender-step-2" class="hidden mt-6 fade-in">
+                    <div class="border-2 border-dashed border-slate-600 hover:border-blue-500 bg-slate-900/50 rounded-xl h-48 flex flex-col items-center justify-center cursor-pointer transition-colors group relative" onclick="document.getElementById('file-input').click()">
+                        <input type="file" id="file-input" class="hidden" multiple onchange="sendFiles(this.files)">
+                        <i class="fa-solid fa-cloud-arrow-up text-4xl text-slate-500 group-hover:text-blue-500 mb-3 transition-colors"></i>
+                        <p class="text-slate-300 font-bold group-hover:text-white">Tap to Upload</p>
+                        <p class="text-slate-500 text-xs mt-1">Images, PDF, DOCX</p>
+                    </div>
+                    <div id="upload-status" class="mt-4 text-center text-sm text-slate-400 min-h-[20px]"></div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- SCREEN 3: SHOP (RECEIVER) -->
+        <div id="screen-receiver" class="w-full flex-1 flex flex-col absolute inset-0 z-30 bg-slate-900 translate-x-full transition-transform duration-300">
+            <!-- Sidebar / ID Display -->
+            <div class="bg-slate-800 border-b border-slate-700 p-4 flex flex-col md:flex-row justify-between items-center gap-4">
+                <div class="flex items-center gap-3">
+                    <span class="text-slate-400 text-sm">Your Shop ID:</span>
+                    <div class="bg-slate-900 border border-slate-600 px-4 py-2 rounded-lg font-mono text-green-400 font-bold text-lg select-all" id="my-peer-id">
+                        Generating...
+                    </div>
+                </div>
+                <div class="text-xs text-slate-500">
+                    <i class="fa-solid fa-circle-info"></i> Customers must enter this ID to send files.
+                </div>
+            </div>
+
+            <!-- File List -->
+            <div id="file-list" class="flex-1 overflow-y-auto p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 content-start">
+                <!-- Received files go here -->
+                <div id="waiting-msg" class="col-span-full flex flex-col items-center justify-center py-20 text-slate-500 opacity-50">
+                    <div class="relative w-16 h-16 mb-4">
+                        <div class="absolute inset-0 bg-blue-500 rounded-full pulse-ring"></div>
+                        <div class="relative w-full h-full bg-slate-700 rounded-full flex items-center justify-center">
+                            <i class="fa-solid fa-satellite-dish text-2xl"></i>
+                        </div>
+                    </div>
+                    <p>Waiting for connections...</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- LOGIC -->
+    <script>
+        let peer = null;
+        let conn = null;
+        let myId = '';
+        let receivedFiles = []; // Store blobs for zip download
+
+        // Initialize App
+        function setupMode(mode) {
+            document.getElementById('screen-setup').classList.add('-translate-y-full');
+            
+            if (mode === 'sender') {
+                document.getElementById('screen-sender').classList.remove('translate-x-full');
+            } else {
+                document.getElementById('screen-receiver').classList.remove('translate-x-full');
+                document.getElementById('shop-controls').classList.remove('hidden');
+                initShopMode();
+            }
+        }
+
+        // ===============================================
+        // SHOP LOGIC (RECEIVER)
+        // ===============================================
+        function initShopMode() {
+            // Try to use a consistent ID first, fallback to random
+            const preferredId = prompt("Create a Shop ID (e.g. 'vantal-main'):", "vantal-" + Math.floor(Math.random()*1000));
+            if(!preferredId) return location.reload();
+
+            peer = new Peer(preferredId, { debug: 2 });
+
+            peer.on('open', (id) => {
+                myId = id;
+                document.getElementById('my-peer-id').innerText = id;
+                setStatus('ONLINE (Hosting)', 'green');
+            });
+
+            peer.on('connection', (c) => {
+                // New Customer Connected
+                conn = c;
+                setStatus('CONNECTED TO CUSTOMER', 'blue');
+                document.getElementById('waiting-msg').classList.add('hidden');
+
+                conn.on('data', (data) => {
+                    handleIncomingData(data);
+                });
+
+                conn.on('close', () => setStatus('ONLINE (Hosting)', 'green'));
+            });
+
+            peer.on('error', (err) => {
+                if(err.type === 'unavailable-id') {
+                    alert(`ID "${preferredId}" is taken. Please choose another.`);
+                    location.reload();
+                } else {
+                    alert("Connection Error: " + err.type);
+                }
+            });
+        }
+
+        function handleIncomingData(data) {
+            // data structure: { file: ArrayBuffer, name: string, type: string, size: number }
+            const blob = new Blob([data.file], { type: data.type });
+            receivedFiles.push({ name: data.name, blob: blob });
+
+            // Create UI Card
+            const card = document.createElement('div');
+            card.className = "bg-slate-800 border border-slate-700 p-4 rounded-xl flex items-center justify-between fade-in hover:border-blue-500 transition-colors";
+            
+            const sizeMB = (data.size / (1024*1024)).toFixed(2);
+            
+            card.innerHTML = `
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <div class="w-10 h-10 bg-slate-700 rounded-lg flex items-center justify-center text-blue-400 shrink-0">
+                        <i class="${getFileIcon(data.name)}"></i>
+                    </div>
+                    <div class="flex flex-col overflow-hidden">
+                        <h4 class="font-bold text-white text-sm truncate" title="${data.name}">${data.name}</h4>
+                        <span class="text-xs text-slate-500">${sizeMB} MB • Received</span>
+                    </div>
+                </div>
+                <button onclick="saveSingleFile(this)" class="text-slate-400 hover:text-green-400 p-2 transition-colors">
+                    <i class="fa-solid fa-download"></i>
+                </button>
+            `;
+            
+            // Attach blob to button for saving
+            const btn = card.querySelector('button');
+            btn.blob = blob;
+            btn.filename = data.name;
+
+            document.getElementById('file-list').prepend(card);
+        }
+
+        // ===============================================
+        // CUSTOMER LOGIC (SENDER)
+        // ===============================================
+        function connectToShop() {
+            const targetId = document.getElementById('target-id').value.trim();
+            if(!targetId) return alert("Enter an ID");
+
+            peer = new Peer(); // Random ID for customer
+
+            peer.on('open', () => {
+                conn = peer.connect(targetId);
+                
+                conn.on('open', () => {
+                    document.getElementById('sender-step-1').classList.add('hidden');
+                    document.getElementById('sender-step-2').classList.remove('hidden');
+                    setStatus('CONNECTED TO SHOP', 'blue');
+                });
+
+                conn.on('error', (err) => alert("Connection failed."));
+                conn.on('close', () => {
+                    alert("Shop disconnected.");
+                    location.reload();
+                });
+            });
+        }
+
+        function sendFiles(files) {
+            if(!conn || !conn.open) return alert("Not connected!");
+
+            const status = document.getElementById('upload-status');
+            let sentCount = 0;
+
+            Array.from(files).forEach(file => {
+                status.innerHTML = `<span class="text-blue-400 animate-pulse">Sending ${file.name}...</span>`;
+                
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const blob = new Blob([e.target.result], { type: file.type });
+                    
+                    conn.send({
+                        file: blob,
+                        name: file.name,
+                        size: file.size,
+                        type: file.type
+                    });
+                    
+                    sentCount++;
+                    if(sentCount === files.length) {
+                        status.innerHTML = `<span class="text-green-500 font-bold"><i class="fa-solid fa-check"></i> Sent! Shop has received files.</span>`;
+                        setTimeout(() => status.innerHTML = '', 3000);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        // ===============================================
+        // UTILS & DOWNLOADS
+        // ===============================================
+
+        function setStatus(msg, color) {
+            const el = document.getElementById('connection-status');
+            const dot = document.getElementById('status-dot');
+            el.innerText = msg;
+            
+            if(color === 'green') dot.className = "absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-slate-900";
+            else if(color === 'blue') dot.className = "absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-blue-500 rounded-full border-2 border-slate-900 animate-pulse";
+            else dot.className = "absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-slate-900";
+        }
+
+        function saveSingleFile(btn) {
+            saveAs(btn.blob, btn.filename);
+        }
+
+        function downloadAll() {
+            if(receivedFiles.length === 0) return alert("No files received yet.");
+            
+            const zip = new JSZip();
+            receivedFiles.forEach(f => zip.file(f.name, f.blob));
+            
+            zip.generateAsync({type:"blob"}).then(function(content) {
+                saveAs(content, "vantal_customer_files.zip");
+            });
+        }
+
+        function getFileIcon(name) {
+            if(name.match(/\.(jpg|jpeg|png|gif)$/i)) return 'fa-solid fa-image text-purple-400';
+            if(name.match(/\.(pdf)$/i)) return 'fa-solid fa-file-pdf text-red-400';
+            if(name.match(/\.(doc|docx)$/i)) return 'fa-solid fa-file-word text-blue-400';
+            if(name.match(/\.(zip|rar)$/i)) return 'fa-solid fa-file-zipper text-yellow-400';
+            return 'fa-solid fa-file text-slate-400';
+        }
+    </script>
+</body>
+</html>
+
+
