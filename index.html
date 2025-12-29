@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vantal P2P | Reliable Transfer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vantal P2P | Universal</title>
     
     <!-- Tailwind & Icons -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -21,12 +21,18 @@
         .fade-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         .progress-fill { transition: width 0.2s linear; }
+        
+        /* Mobile Tweaks */
+        @media (max-width: 640px) {
+            .mobile-stack { flex-direction: column; align-items: stretch; }
+            .mobile-full { width: 100%; }
+        }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-200 font-sans h-screen flex flex-col overflow-hidden">
 
     <!-- Header -->
-    <header class="bg-slate-800 border-b border-slate-700 p-4 flex justify-between items-center z-50 shadow-lg relative">
+    <header class="bg-slate-800 border-b border-slate-700 p-3 md:p-4 flex justify-between items-center z-50 shadow-lg relative shrink-0">
         <div class="flex items-center gap-3">
             <div class="relative">
                 <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white text-lg shadow-lg shadow-blue-900/40">
@@ -37,12 +43,12 @@
             </div>
             <div>
                 <h1 class="font-bold text-white text-lg leading-tight tracking-tight">Vantal<span class="text-blue-500">Studios</span></h1>
-                <p id="connection-status" class="text-[10px] text-slate-400 font-mono">DISCONNECTED</p>
+                <p id="connection-status" class="text-[10px] text-slate-400 font-mono">OFFLINE</p>
             </div>
         </div>
         <div id="shop-controls" class="hidden">
-            <button onclick="downloadAll()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-lg shadow-emerald-900/20 flex items-center gap-2 transition-all active:scale-95">
-                <i class="fa-solid fa-file-zipper"></i> Download All
+            <button onclick="downloadAll()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-xs font-bold shadow-lg shadow-emerald-900/20 flex items-center gap-2 transition-all active:scale-95 whitespace-nowrap">
+                <i class="fa-solid fa-file-zipper"></i> <span class="hidden sm:inline">Download All</span><span class="sm:hidden">Zip</span>
             </button>
         </div>
     </header>
@@ -51,30 +57,30 @@
     <div class="flex-1 flex overflow-hidden relative">
         
         <!-- SCREEN 1: MODE SELECTION -->
-        <div id="screen-setup" class="w-full flex-1 flex flex-col items-center justify-center p-6 absolute inset-0 z-40 bg-slate-900 transition-transform duration-300">
+        <div id="screen-setup" class="w-full flex-1 flex flex-col items-center justify-center p-6 absolute inset-0 z-40 bg-slate-900 transition-transform duration-300 overflow-y-auto">
             <div class="max-w-md w-full grid grid-cols-1 gap-4">
                 <h2 class="text-2xl font-bold text-center text-white mb-4">Select Mode</h2>
                 
-                <button onclick="setupMode('sender')" class="group relative bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-blue-500 p-6 rounded-2xl text-left transition-all shadow-xl">
+                <button onclick="setupMode('sender')" class="group relative bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-blue-500 p-6 rounded-2xl text-left transition-all shadow-xl active:scale-95">
                     <div class="absolute right-6 top-6 text-3xl text-slate-600 group-hover:text-blue-500 transition-colors">
                         <i class="fa-solid fa-paper-plane"></i>
                     </div>
                     <h3 class="text-xl font-bold text-white mb-1">Customer</h3>
-                    <p class="text-slate-400 text-sm">Send files to shop</p>
+                    <p class="text-slate-400 text-sm">I want to send files</p>
                 </button>
 
-                <button onclick="setupMode('receiver')" class="group relative bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-green-500 p-6 rounded-2xl text-left transition-all shadow-xl">
+                <button onclick="setupMode('receiver')" class="group relative bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-green-500 p-6 rounded-2xl text-left transition-all shadow-xl active:scale-95">
                     <div class="absolute right-6 top-6 text-3xl text-slate-600 group-hover:text-green-500 transition-colors">
                         <i class="fa-solid fa-shop"></i>
                     </div>
                     <h3 class="text-xl font-bold text-white mb-1">Shop (Receiver)</h3>
-                    <p class="text-slate-400 text-sm">Receive files</p>
+                    <p class="text-slate-400 text-sm">I want to receive files</p>
                 </button>
             </div>
         </div>
 
         <!-- SCREEN 2: SENDER -->
-        <div id="screen-sender" class="w-full flex-1 flex flex-col items-center justify-center p-6 absolute inset-0 z-30 bg-slate-900 translate-x-full transition-transform duration-300">
+        <div id="screen-sender" class="w-full flex-1 flex flex-col items-center justify-center p-4 md:p-6 absolute inset-0 z-30 bg-slate-900 translate-x-full transition-transform duration-300 overflow-y-auto">
             <div class="max-w-md w-full bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
                 
                 <!-- Connect -->
@@ -84,13 +90,13 @@
                     </h3>
                     <div class="flex gap-2">
                         <input type="text" id="target-id" placeholder="Shop ID (e.g. vantal)" class="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:border-blue-500 outline-none font-mono">
-                        <button onclick="connectToShop()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 rounded-lg font-bold transition-colors">Join</button>
+                        <button onclick="connectToShop()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 rounded-lg font-bold transition-colors active:scale-95">Join</button>
                     </div>
                 </div>
 
                 <!-- Upload -->
                 <div id="sender-step-2" class="hidden mt-6 fade-in">
-                    <div class="border-2 border-dashed border-slate-600 hover:border-blue-500 bg-slate-900/50 rounded-xl h-48 flex flex-col items-center justify-center cursor-pointer transition-colors group relative" onclick="document.getElementById('file-input').click()">
+                    <div class="border-2 border-dashed border-slate-600 hover:border-blue-500 bg-slate-900/50 rounded-xl h-48 flex flex-col items-center justify-center cursor-pointer transition-colors group relative active:bg-slate-800" onclick="document.getElementById('file-input').click()">
                         <input type="file" id="file-input" class="hidden" multiple onchange="startUploadQueue(this.files)">
                         <div id="drop-icon">
                             <i class="fa-solid fa-cloud-arrow-up text-4xl text-slate-500 group-hover:text-blue-500 mb-3 transition-colors"></i>
@@ -105,7 +111,7 @@
                     <!-- Sender Progress -->
                     <div id="sender-progress-container" class="mt-4 hidden">
                          <div class="flex justify-between text-xs text-slate-400 mb-1">
-                             <span id="sender-filename">filename.jpg</span>
+                             <span id="sender-filename" class="truncate max-w-[200px]">filename.jpg</span>
                              <span id="sender-percent">0%</span>
                          </div>
                          <div class="h-2 w-full bg-slate-700 rounded-full overflow-hidden">
@@ -113,32 +119,34 @@
                          </div>
                     </div>
                 </div>
+                
+                <button onclick="location.reload()" class="mt-4 w-full text-slate-500 text-xs hover:text-white">Cancel / Restart</button>
 
             </div>
         </div>
 
         <!-- SCREEN 3: RECEIVER -->
         <div id="screen-receiver" class="w-full flex-1 flex flex-col absolute inset-0 z-30 bg-slate-900 translate-x-full transition-transform duration-300">
-            <!-- Sidebar -->
-            <div class="bg-slate-800 border-b border-slate-700 p-4 flex flex-col md:flex-row justify-between items-center gap-4">
-                <div class="flex items-center gap-3">
-                    <span class="text-slate-400 text-sm">Shop ID:</span>
-                    <div class="bg-slate-900 border border-slate-600 px-4 py-2 rounded-lg font-mono text-green-400 font-bold text-lg select-all" id="my-peer-id">Generating...</div>
+            <!-- Sidebar / ID Display -->
+            <div class="bg-slate-800 border-b border-slate-700 p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
+                <div class="flex flex-col md:flex-row md:items-center gap-2 md:gap-3 w-full">
+                    <span class="text-slate-400 text-sm whitespace-nowrap">Shop ID:</span>
+                    <div class="bg-slate-900 border border-slate-600 px-4 py-2 rounded-lg font-mono text-green-400 font-bold text-lg select-all w-full md:w-auto text-center md:text-left break-all" id="my-peer-id">Generating...</div>
                 </div>
-                <div class="text-xs text-slate-500 flex items-center gap-2">
+                <div class="text-xs text-slate-500 flex items-center gap-2 whitespace-nowrap">
                     <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div> 
-                    Listening for connections...
+                    Waiting...
                 </div>
             </div>
 
             <!-- File List -->
-            <div id="file-list" class="flex-1 overflow-y-auto p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 content-start"></div>
+            <div id="file-list" class="flex-1 overflow-y-auto p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 content-start pb-20"></div>
         </div>
     </div>
     
     <!-- SYSTEM LOG (Debug Panel) -->
     <div id="system-log" class="fixed bottom-0 left-0 w-full h-32 bg-slate-950 border-t border-slate-800 p-2 font-mono text-[10px] text-green-500 overflow-y-auto z-50 opacity-90 hidden"></div>
-    <button onclick="document.getElementById('system-log').classList.toggle('hidden')" class="fixed bottom-2 right-2 z-50 bg-slate-800 text-slate-400 p-2 rounded-lg text-xs hover:text-white"><i class="fa-solid fa-terminal"></i> Log</button>
+    <button onclick="document.getElementById('system-log').classList.toggle('hidden')" class="fixed bottom-2 right-2 z-50 bg-slate-800 text-slate-400 p-2 rounded-lg text-xs hover:text-white"><i class="fa-solid fa-terminal"></i></button>
 
     <!-- LOGIC -->
     <script>
@@ -201,12 +209,11 @@
 
         function setupReceiverConnection(connection) {
             connection.on('open', () => {
-                setStatus('CUSTOMER CONNECTED', 'blue');
+                setStatus('CONNECTED', 'blue');
                 log("Customer connected via DataChannel");
             });
 
             connection.on('data', (data) => {
-                // Determine Data Type
                 if (data.type === 'start') {
                     startTransfer(data);
                 } else if (data.type === 'chunk') {
@@ -223,11 +230,12 @@
         }
 
         function startTransfer(data) {
-            log(`Starting incoming file: ${data.name} (${data.size} bytes)`);
+            log(`Incoming: ${data.name} (${data.size} bytes) Type: ${data.mime}`);
             
             incomingTransfers[data.id] = {
                 name: data.name,
                 size: data.size,
+                mime: data.mime || 'application/octet-stream', // Capture MIME
                 chunks: [],
                 receivedSize: 0,
                 lastPercent: 0
@@ -237,21 +245,26 @@
             const sizeMB = (data.size / (1024*1024)).toFixed(2);
             const div = document.createElement('div');
             div.id = `card-${data.id}`;
-            div.className = "bg-slate-800 border border-slate-700 p-4 rounded-xl fade-in relative overflow-hidden";
+            div.className = "bg-slate-800 border border-slate-700 p-4 rounded-xl fade-in relative overflow-hidden flex flex-col justify-center min-h-[100px]";
             div.innerHTML = `
-                <div class="flex items-center gap-3 relative z-10">
-                    <div class="w-10 h-10 bg-slate-700 rounded-lg flex items-center justify-center text-slate-500 shrink-0 icon-box">
+                <div class="flex items-center gap-3 relative z-10 w-full pr-10">
+                    <div class="w-12 h-12 bg-slate-700 rounded-lg flex items-center justify-center text-slate-500 shrink-0 icon-box text-xl">
                         <i class="fa-solid fa-spinner fa-spin"></i>
                     </div>
                     <div class="flex-1 overflow-hidden">
-                        <h4 class="font-bold text-white text-sm truncate">${data.name}</h4>
+                        <h4 class="font-bold text-white text-sm truncate w-full" title="${data.name}">${data.name}</h4>
                         <div class="flex justify-between text-[10px] text-slate-400 mt-1">
                             <span>${sizeMB} MB</span>
-                            <span class="status-text">0%</span>
+                            <span class="status-text font-mono">0%</span>
                         </div>
                     </div>
                 </div>
                 <div class="absolute bottom-0 left-0 h-1 bg-blue-500 w-0 progress-bar transition-all duration-100"></div>
+                
+                <!-- Download Button (Hidden Initially) -->
+                <button id="btn-${data.id}" class="absolute right-3 top-1/2 -translate-y-1/2 bg-slate-700 text-slate-500 hover:bg-slate-600 hover:text-white p-3 rounded-full transition-all duration-300 hidden active:scale-90 shadow-lg z-20">
+                    <i class="fa-solid fa-download"></i>
+                </button>
             `;
             document.getElementById('file-list').prepend(div);
         }
@@ -260,13 +273,12 @@
             const transfer = incomingTransfers[data.id];
             if(!transfer) return;
 
-            transfer.chunks.push(data.data); // data.data is ArrayBuffer
+            transfer.chunks.push(data.data); 
             transfer.receivedSize += data.data.byteLength;
 
             const percent = Math.floor((transfer.receivedSize / transfer.size) * 100);
             
-            // Only update DOM every 5% to save performance
-            if (percent > transfer.lastPercent + 5 || percent === 100) {
+            if (percent > transfer.lastPercent + 2 || percent === 100) {
                 transfer.lastPercent = percent;
                 const card = document.getElementById(`card-${data.id}`);
                 if(card) {
@@ -280,26 +292,35 @@
             const transfer = incomingTransfers[data.id];
             log(`Finished: ${transfer.name}`);
 
-            const blob = new Blob(transfer.chunks);
+            // Create Blob with proper MIME type
+            const blob = new Blob(transfer.chunks, { type: transfer.mime });
             receivedFiles.push({ name: transfer.name, blob: blob });
             
-            // Finalize Card
+            // Finalize Card UI
             const card = document.getElementById(`card-${data.id}`);
             if(card) {
-                card.classList.add('border-green-500');
+                card.classList.add('border-green-500/50');
                 card.querySelector('.progress-bar').classList.add('bg-green-500');
                 card.querySelector('.progress-bar').style.width = '100%';
                 
                 card.querySelector('.status-text').innerText = "Complete";
                 card.querySelector('.status-text').classList.add('text-green-400');
                 
-                card.querySelector('.icon-box').innerHTML = '<i class="fa-solid fa-check text-green-500"></i>';
+                // Icon Update
+                const iconBox = card.querySelector('.icon-box');
+                iconBox.innerHTML = '<i class="fa-solid fa-check text-green-500"></i>';
+                iconBox.classList.add('bg-green-500/10');
                 
-                const btn = document.createElement('button');
-                btn.className = "absolute right-4 top-4 text-slate-400 hover:text-white bg-slate-700 hover:bg-slate-600 rounded p-1";
-                btn.innerHTML = '<i class="fa-solid fa-download"></i>';
-                btn.onclick = () => saveAs(blob, transfer.name);
-                card.appendChild(btn);
+                // Activate Download Button
+                const btn = document.getElementById(`btn-${data.id}`);
+                btn.classList.remove('hidden', 'bg-slate-700', 'text-slate-500');
+                btn.classList.add('bg-green-500', 'text-white', 'hover:bg-green-400', 'pulse-once');
+                
+                // Attach Click Listener with Blob closure
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    saveAs(blob, transfer.name);
+                };
             }
             
             delete incomingTransfers[data.id];
@@ -312,7 +333,7 @@
             const targetId = document.getElementById('target-id').value.trim();
             if(!targetId) return alert("Enter ID");
 
-            log("Attempting to connect to: " + targetId);
+            log("Connecting to: " + targetId);
             peer = new Peer({ debug: 2 });
 
             peer.on('open', () => {
@@ -376,8 +397,14 @@
                 const progressBar = document.getElementById('sender-bar');
                 const percentText = document.getElementById('sender-percent');
 
-                // 1. Send Start
-                conn.send({ type: 'start', id: transferId, name: file.name, size: file.size });
+                // 1. Send Start with MIME
+                conn.send({ 
+                    type: 'start', 
+                    id: transferId, 
+                    name: file.name, 
+                    size: file.size,
+                    mime: file.type // Send MIME type
+                });
 
                 const reader = new FileReader();
                 reader.onload = async (e) => {
@@ -387,10 +414,9 @@
 
                     // 2. Buffered Send Loop
                     while (offset < totalSize) {
-                        // BACKPRESSURE CHECK
-                        if (conn.dataChannel.bufferedAmount > 16 * 1024 * 1024) { // 16MB Limit
-                            log("Buffer full, waiting...");
-                            await new Promise(r => setTimeout(r, 100));
+                        // Backpressure Check
+                        if (conn.dataChannel.bufferedAmount > 16 * 1024 * 1024) { 
+                            await new Promise(r => setTimeout(r, 50));
                             continue;
                         }
 
@@ -408,13 +434,13 @@
                         progressBar.style.width = `${percent}%`;
                         percentText.innerText = `${percent}%`;
 
-                        // Tiny delay to breathe
-                        if (offset % (CHUNK_SIZE * 10) === 0) await new Promise(r => setTimeout(r, 5));
+                        // Breath
+                        if (offset % (CHUNK_SIZE * 5) === 0) await new Promise(r => setTimeout(r, 1));
                     }
 
                     // 3. Send End
                     conn.send({ type: 'end', id: transferId });
-                    log(`Sent ${file.name} successfully.`);
+                    log(`Sent ${file.name}`);
                     resolve();
                 };
                 reader.readAsArrayBuffer(file);
