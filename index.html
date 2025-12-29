@@ -20,8 +20,7 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .fade-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-        /* Smooth progress bar transition */
-        .progress-fill { transition: width 0.1s linear; }
+        .progress-fill { transition: width 0.2s linear; }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-200 font-sans h-screen flex flex-col overflow-hidden">
@@ -34,7 +33,7 @@
                     <i class="fa-solid fa-bolt"></i>
                 </div>
                 <!-- Status Dot -->
-                <div id="status-dot" class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-slate-500 rounded-full border-2 border-slate-800 transition-colors duration-300"></div>
+                <div id="status-dot" class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-slate-800 transition-colors duration-300"></div>
             </div>
             <div>
                 <h1 class="font-bold text-white text-lg leading-tight tracking-tight">Vantal<span class="text-blue-500">Studios</span></h1>
@@ -97,9 +96,9 @@
                             <i class="fa-solid fa-cloud-arrow-up text-4xl text-slate-500 group-hover:text-blue-500 mb-3 transition-colors"></i>
                             <p class="text-slate-300 font-bold group-hover:text-white">Tap to Upload</p>
                         </div>
-                        <div id="drop-spinner" class="hidden">
+                        <div id="drop-spinner" class="hidden text-center">
                             <i class="fa-solid fa-circle-notch fa-spin text-4xl text-blue-500 mb-3"></i>
-                            <p class="text-blue-400 font-bold">Processing...</p>
+                            <p class="text-blue-400 font-bold">Sending...</p>
                         </div>
                     </div>
                     
@@ -126,7 +125,10 @@
                     <span class="text-slate-400 text-sm">Shop ID:</span>
                     <div class="bg-slate-900 border border-slate-600 px-4 py-2 rounded-lg font-mono text-green-400 font-bold text-lg select-all" id="my-peer-id">Generating...</div>
                 </div>
-                <div class="text-xs text-slate-500"><i class="fa-solid fa-wifi"></i> Waiting for customers...</div>
+                <div class="text-xs text-slate-500 flex items-center gap-2">
+                    <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div> 
+                    Listening for connections...
+                </div>
             </div>
 
             <!-- File List -->
@@ -134,23 +136,25 @@
         </div>
     </div>
     
-    <!-- DEBUG CONSOLE (Hidden by default, useful for troubleshooting) -->
-    <div id="debug-log" class="fixed bottom-0 left-0 w-full bg-black/80 text-[10px] font-mono text-green-400 p-2 max-h-20 overflow-y-auto z-50 pointer-events-none"></div>
+    <!-- SYSTEM LOG (Debug Panel) -->
+    <div id="system-log" class="fixed bottom-0 left-0 w-full h-32 bg-slate-950 border-t border-slate-800 p-2 font-mono text-[10px] text-green-500 overflow-y-auto z-50 opacity-90 hidden"></div>
+    <button onclick="document.getElementById('system-log').classList.toggle('hidden')" class="fixed bottom-2 right-2 z-50 bg-slate-800 text-slate-400 p-2 rounded-lg text-xs hover:text-white"><i class="fa-solid fa-terminal"></i> Log</button>
 
     <!-- LOGIC -->
     <script>
         // --- CONFIGURATION ---
-        // 64KB chunks prevents browser crashing on large files
-        const CHUNK_SIZE = 64 * 1024; 
+        const CHUNK_SIZE = 16 * 1024; // 16KB Safe Chunk Size
         
         let peer = null;
         let conn = null;
         let receivedFiles = [];
-        let incomingTransfers = {}; // Track partial downloads on receiver
+        let incomingTransfers = {};
 
+        // Logging
         function log(msg) {
-            const el = document.getElementById('debug-log');
-            el.innerHTML += `<div>> ${msg}</div>`;
+            const el = document.getElementById('system-log');
+            const time = new Date().toLocaleTimeString();
+            el.innerHTML += `<div class="mb-0.5 border-b border-slate-800/50 pb-0.5"><span class="text-slate-500">[${time}]</span> ${msg}</div>`;
             el.scrollTop = el.scrollHeight;
             console.log(msg);
         }
@@ -172,65 +176,67 @@
             const preferredId = prompt("Enter Shop ID (e.g. vantal):", "vantal");
             if(!preferredId) return location.reload();
 
-            peer = new Peer(preferredId);
+            // Force Reliable Mode
+            peer = new Peer(preferredId, {
+                debug: 2,
+                config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] } 
+            });
 
             peer.on('open', (id) => {
                 document.getElementById('my-peer-id').innerText = id;
                 setStatus('ONLINE', 'green');
-                log("Shop Ready: " + id);
+                log("Shop Initialized. Waiting for sender...");
             });
 
             peer.on('connection', (c) => {
                 conn = c;
-                setStatus('CUSTOMER CONNECTED', 'blue');
-                log("Customer connected!");
-
-                conn.on('data', (data) => handleIncomingData(data));
-                conn.on('close', () => setStatus('ONLINE', 'green'));
+                setupReceiverConnection(conn);
             });
             
-            peer.on('error', (err) => alert("Error: " + err.type));
+            peer.on('error', (err) => {
+                alert("Error: " + err.type);
+                log("Peer Error: " + err);
+            });
         }
 
-        function handleIncomingData(data) {
-            // PROTOCOL: 
-            // 1. { type: 'start', id, name, size }
-            // 2. { type: 'chunk', id, data, current, total }
-            // 3. { type: 'end', id }
+        function setupReceiverConnection(connection) {
+            connection.on('open', () => {
+                setStatus('CUSTOMER CONNECTED', 'blue');
+                log("Customer connected via DataChannel");
+            });
 
-            if (data.type === 'start') {
-                log(`Starting download: ${data.name}`);
-                // Create card placeholder
-                createFileCard(data.id, data.name, data.size);
-                
-                incomingTransfers[data.id] = {
-                    name: data.name,
-                    size: data.size,
-                    chunks: [],
-                    receivedSize: 0
-                };
-            } 
-            else if (data.type === 'chunk') {
-                const transfer = incomingTransfers[data.id];
-                if(transfer) {
-                    transfer.chunks.push(data.data); // data.data is ArrayBuffer
-                    transfer.receivedSize += data.data.byteLength;
-                    
-                    // Update UI Progress
-                    const percent = (transfer.receivedSize / transfer.size) * 100;
-                    updateCardProgress(data.id, percent);
+            connection.on('data', (data) => {
+                // Determine Data Type
+                if (data.type === 'start') {
+                    startTransfer(data);
+                } else if (data.type === 'chunk') {
+                    processChunk(data);
+                } else if (data.type === 'end') {
+                    finishTransfer(data);
                 }
-            } 
-            else if (data.type === 'end') {
-                log(`Download complete: ${incomingTransfers[data.id].name}`);
-                finalizeFile(data.id);
-            }
+            });
+
+            connection.on('close', () => {
+                setStatus('ONLINE', 'green');
+                log("Customer disconnected");
+            });
         }
 
-        function createFileCard(id, name, size) {
-            const sizeMB = (size / (1024*1024)).toFixed(2);
+        function startTransfer(data) {
+            log(`Starting incoming file: ${data.name} (${data.size} bytes)`);
+            
+            incomingTransfers[data.id] = {
+                name: data.name,
+                size: data.size,
+                chunks: [],
+                receivedSize: 0,
+                lastPercent: 0
+            };
+
+            // Create UI Card
+            const sizeMB = (data.size / (1024*1024)).toFixed(2);
             const div = document.createElement('div');
-            div.id = `card-${id}`;
+            div.id = `card-${data.id}`;
             div.className = "bg-slate-800 border border-slate-700 p-4 rounded-xl fade-in relative overflow-hidden";
             div.innerHTML = `
                 <div class="flex items-center gap-3 relative z-10">
@@ -238,52 +244,65 @@
                         <i class="fa-solid fa-spinner fa-spin"></i>
                     </div>
                     <div class="flex-1 overflow-hidden">
-                        <h4 class="font-bold text-white text-sm truncate">${name}</h4>
+                        <h4 class="font-bold text-white text-sm truncate">${data.name}</h4>
                         <div class="flex justify-between text-[10px] text-slate-400 mt-1">
                             <span>${sizeMB} MB</span>
-                            <span class="status-text">Receiving...</span>
+                            <span class="status-text">0%</span>
                         </div>
                     </div>
                 </div>
-                <!-- Progress Background -->
-                <div class="absolute bottom-0 left-0 h-1 bg-blue-500 w-0 progress-bar transition-all duration-200"></div>
+                <div class="absolute bottom-0 left-0 h-1 bg-blue-500 w-0 progress-bar transition-all duration-100"></div>
             `;
             document.getElementById('file-list').prepend(div);
         }
 
-        function updateCardProgress(id, percent) {
-            const card = document.getElementById(`card-${id}`);
-            if(card) {
-                card.querySelector('.progress-bar').style.width = `${percent}%`;
+        function processChunk(data) {
+            const transfer = incomingTransfers[data.id];
+            if(!transfer) return;
+
+            transfer.chunks.push(data.data); // data.data is ArrayBuffer
+            transfer.receivedSize += data.data.byteLength;
+
+            const percent = Math.floor((transfer.receivedSize / transfer.size) * 100);
+            
+            // Only update DOM every 5% to save performance
+            if (percent > transfer.lastPercent + 5 || percent === 100) {
+                transfer.lastPercent = percent;
+                const card = document.getElementById(`card-${data.id}`);
+                if(card) {
+                    card.querySelector('.progress-bar').style.width = `${percent}%`;
+                    card.querySelector('.status-text').innerText = `${percent}%`;
+                }
             }
         }
 
-        function finalizeFile(id) {
-            const transfer = incomingTransfers[id];
+        function finishTransfer(data) {
+            const transfer = incomingTransfers[data.id];
+            log(`Finished: ${transfer.name}`);
+
             const blob = new Blob(transfer.chunks);
             receivedFiles.push({ name: transfer.name, blob: blob });
             
-            // Update Card UI
-            const card = document.getElementById(`card-${id}`);
+            // Finalize Card
+            const card = document.getElementById(`card-${data.id}`);
             if(card) {
                 card.classList.add('border-green-500');
                 card.querySelector('.progress-bar').classList.add('bg-green-500');
+                card.querySelector('.progress-bar').style.width = '100%';
+                
                 card.querySelector('.status-text').innerText = "Complete";
                 card.querySelector('.status-text').classList.add('text-green-400');
                 
-                const iconBox = card.querySelector('.icon-box');
-                iconBox.innerHTML = '<i class="fa-solid fa-check text-green-500"></i>';
+                card.querySelector('.icon-box').innerHTML = '<i class="fa-solid fa-check text-green-500"></i>';
                 
-                // Add download button
                 const btn = document.createElement('button');
-                btn.className = "absolute right-4 top-4 text-slate-400 hover:text-white";
+                btn.className = "absolute right-4 top-4 text-slate-400 hover:text-white bg-slate-700 hover:bg-slate-600 rounded p-1";
                 btn.innerHTML = '<i class="fa-solid fa-download"></i>';
                 btn.onclick = () => saveAs(blob, transfer.name);
                 card.appendChild(btn);
             }
             
-            // Cleanup memory
-            delete incomingTransfers[id];
+            delete incomingTransfers[data.id];
         }
 
         // ===============================================
@@ -293,20 +312,34 @@
             const targetId = document.getElementById('target-id').value.trim();
             if(!targetId) return alert("Enter ID");
 
-            peer = new Peer();
-            peer.on('open', () => {
-                log("Connecting to " + targetId);
-                conn = peer.connect(targetId);
-                
-                conn.on('open', () => {
-                    document.getElementById('sender-step-1').classList.add('hidden');
-                    document.getElementById('sender-step-2').classList.remove('hidden');
-                    setStatus('CONNECTED', 'blue');
-                    log("Connected!");
-                });
+            log("Attempting to connect to: " + targetId);
+            peer = new Peer({ debug: 2 });
 
-                conn.on('error', (err) => alert("Connection Failed"));
+            peer.on('open', () => {
+                conn = peer.connect(targetId, { reliable: true });
+                setupSenderConnection(conn);
             });
+
+            peer.on('error', err => {
+                alert("Connection failed: " + err.type);
+                log("Error: " + err);
+            });
+        }
+
+        function setupSenderConnection(connection) {
+            connection.on('open', () => {
+                document.getElementById('sender-step-1').classList.add('hidden');
+                document.getElementById('sender-step-2').classList.remove('hidden');
+                setStatus('CONNECTED', 'blue');
+                log("Connected to Shop!");
+            });
+
+            connection.on('close', () => {
+                alert("Shop disconnected");
+                location.reload();
+            });
+
+            connection.on('error', err => log("Conn Error: " + err));
         }
 
         async function startUploadQueue(files) {
@@ -327,53 +360,61 @@
             input.disabled = false;
             input.value = '';
             
-            document.getElementById('sender-filename').innerText = "All Sent!";
+            document.getElementById('sender-filename').innerText = "All Files Sent!";
             document.getElementById('sender-percent').innerText = "100%";
+            document.getElementById('sender-bar').style.width = "100%";
         }
 
         function sendSingleFile(file) {
             return new Promise((resolve) => {
                 const transferId = Math.random().toString(36).substr(2, 9);
-                log(`Processing ${file.name} (${file.size} bytes)`);
+                log(`Preparing ${file.name}...`);
 
-                // Update UI
+                // UI
                 document.getElementById('sender-progress-container').classList.remove('hidden');
                 document.getElementById('sender-filename').innerText = file.name;
                 const progressBar = document.getElementById('sender-bar');
                 const percentText = document.getElementById('sender-percent');
 
-                // 1. Send Start Metadata
+                // 1. Send Start
                 conn.send({ type: 'start', id: transferId, name: file.name, size: file.size });
 
                 const reader = new FileReader();
                 reader.onload = async (e) => {
                     const buffer = e.target.result;
-                    const totalChunks = Math.ceil(buffer.byteLength / CHUNK_SIZE);
-                    
-                    // 2. Loop Chunks
-                    for (let i = 0; i < totalChunks; i++) {
-                        const start = i * CHUNK_SIZE;
-                        const end = start + CHUNK_SIZE;
-                        const chunk = buffer.slice(start, end);
-                        
-                        // Critical: Wait slightly between chunks to prevent flooding UDP
-                        if(i % 100 === 0) await new Promise(r => setTimeout(r, 10));
+                    let offset = 0;
+                    const totalSize = buffer.byteLength;
+
+                    // 2. Buffered Send Loop
+                    while (offset < totalSize) {
+                        // BACKPRESSURE CHECK
+                        if (conn.dataChannel.bufferedAmount > 16 * 1024 * 1024) { // 16MB Limit
+                            log("Buffer full, waiting...");
+                            await new Promise(r => setTimeout(r, 100));
+                            continue;
+                        }
+
+                        const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
+                        offset += CHUNK_SIZE;
 
                         conn.send({
                             type: 'chunk',
                             id: transferId,
                             data: chunk
                         });
-                        
-                        // Update UI
-                        const pct = Math.round(((i + 1) / totalChunks) * 100);
-                        progressBar.style.width = `${pct}%`;
-                        percentText.innerText = `${pct}%`;
+
+                        // UI Update
+                        const percent = Math.min(100, Math.round((offset / totalSize) * 100));
+                        progressBar.style.width = `${percent}%`;
+                        percentText.innerText = `${percent}%`;
+
+                        // Tiny delay to breathe
+                        if (offset % (CHUNK_SIZE * 10) === 0) await new Promise(r => setTimeout(r, 5));
                     }
 
                     // 3. Send End
                     conn.send({ type: 'end', id: transferId });
-                    log(`Sent ${file.name}`);
+                    log(`Sent ${file.name} successfully.`);
                     resolve();
                 };
                 reader.readAsArrayBuffer(file);
@@ -393,7 +434,7 @@
         }
 
         function downloadAll() {
-            if(receivedFiles.length === 0) return alert("No files.");
+            if(receivedFiles.length === 0) return alert("No files received.");
             const zip = new JSZip();
             receivedFiles.forEach(f => zip.file(f.name, f.blob));
             zip.generateAsync({type:"blob"}).then(c => saveAs(c, "vantal_files.zip"));
