@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vantal Studios | Direct Transfer</title>
+    <title>Vantal P2P | Reliable Transfer</title>
     
     <!-- Tailwind & Icons -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
     
-    <!-- PeerJS (The Magic: Allows direct browser-to-browser connection) -->
+    <!-- PeerJS -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     
     <!-- Zip Library -->
@@ -20,8 +20,8 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .fade-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-        .pulse-ring { animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
-        @keyframes pulse-ring { 0% { transform: scale(0.8); opacity: 0.5; } 100% { transform: scale(2); opacity: 0; } }
+        /* Smooth progress bar transition */
+        .progress-fill { transition: width 0.1s linear; }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-200 font-sans h-screen flex flex-col overflow-hidden">
@@ -56,103 +56,109 @@
             <div class="max-w-md w-full grid grid-cols-1 gap-4">
                 <h2 class="text-2xl font-bold text-center text-white mb-4">Select Mode</h2>
                 
-                <!-- Customer Button -->
                 <button onclick="setupMode('sender')" class="group relative bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-blue-500 p-6 rounded-2xl text-left transition-all shadow-xl">
                     <div class="absolute right-6 top-6 text-3xl text-slate-600 group-hover:text-blue-500 transition-colors">
                         <i class="fa-solid fa-paper-plane"></i>
                     </div>
-                    <h3 class="text-xl font-bold text-white mb-1">I am a Customer</h3>
-                    <p class="text-slate-400 text-sm">I want to send files to the shop.</p>
+                    <h3 class="text-xl font-bold text-white mb-1">Customer</h3>
+                    <p class="text-slate-400 text-sm">Send files to shop</p>
                 </button>
 
-                <!-- Shop Button -->
                 <button onclick="setupMode('receiver')" class="group relative bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-green-500 p-6 rounded-2xl text-left transition-all shadow-xl">
                     <div class="absolute right-6 top-6 text-3xl text-slate-600 group-hover:text-green-500 transition-colors">
                         <i class="fa-solid fa-shop"></i>
                     </div>
-                    <h3 class="text-xl font-bold text-white mb-1">I am the Shop</h3>
-                    <p class="text-slate-400 text-sm">I want to receive files.</p>
+                    <h3 class="text-xl font-bold text-white mb-1">Shop (Receiver)</h3>
+                    <p class="text-slate-400 text-sm">Receive files</p>
                 </button>
             </div>
         </div>
 
-        <!-- SCREEN 2: CUSTOMER (SENDER) -->
+        <!-- SCREEN 2: SENDER -->
         <div id="screen-sender" class="w-full flex-1 flex flex-col items-center justify-center p-6 absolute inset-0 z-30 bg-slate-900 translate-x-full transition-transform duration-300">
             <div class="max-w-md w-full bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
                 
-                <!-- Step 1: Connect -->
+                <!-- Connect -->
                 <div id="sender-step-1">
                     <h3 class="font-bold text-white mb-4 flex items-center gap-2">
                         <i class="fa-solid fa-link text-blue-500"></i> Connect to Shop
                     </h3>
                     <div class="flex gap-2">
-                        <input type="text" id="target-id" placeholder="Enter Shop ID (e.g. vantal)" class="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:border-blue-500 outline-none font-mono">
-                        <button onclick="connectToShop()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 rounded-lg font-bold transition-colors">
-                            Join
-                        </button>
+                        <input type="text" id="target-id" placeholder="Shop ID (e.g. vantal)" class="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:border-blue-500 outline-none font-mono">
+                        <button onclick="connectToShop()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 rounded-lg font-bold transition-colors">Join</button>
                     </div>
                 </div>
 
-                <!-- Step 2: Dropzone (Hidden until connected) -->
+                <!-- Upload -->
                 <div id="sender-step-2" class="hidden mt-6 fade-in">
                     <div class="border-2 border-dashed border-slate-600 hover:border-blue-500 bg-slate-900/50 rounded-xl h-48 flex flex-col items-center justify-center cursor-pointer transition-colors group relative" onclick="document.getElementById('file-input').click()">
-                        <input type="file" id="file-input" class="hidden" multiple onchange="sendFiles(this.files)">
-                        <i class="fa-solid fa-cloud-arrow-up text-4xl text-slate-500 group-hover:text-blue-500 mb-3 transition-colors"></i>
-                        <p class="text-slate-300 font-bold group-hover:text-white">Tap to Upload</p>
-                        <p class="text-slate-500 text-xs mt-1">Images, PDF, DOCX</p>
+                        <input type="file" id="file-input" class="hidden" multiple onchange="startUploadQueue(this.files)">
+                        <div id="drop-icon">
+                            <i class="fa-solid fa-cloud-arrow-up text-4xl text-slate-500 group-hover:text-blue-500 mb-3 transition-colors"></i>
+                            <p class="text-slate-300 font-bold group-hover:text-white">Tap to Upload</p>
+                        </div>
+                        <div id="drop-spinner" class="hidden">
+                            <i class="fa-solid fa-circle-notch fa-spin text-4xl text-blue-500 mb-3"></i>
+                            <p class="text-blue-400 font-bold">Processing...</p>
+                        </div>
                     </div>
-                    <div id="upload-status" class="mt-4 text-center text-sm text-slate-400 min-h-[20px]"></div>
+                    
+                    <!-- Sender Progress -->
+                    <div id="sender-progress-container" class="mt-4 hidden">
+                         <div class="flex justify-between text-xs text-slate-400 mb-1">
+                             <span id="sender-filename">filename.jpg</span>
+                             <span id="sender-percent">0%</span>
+                         </div>
+                         <div class="h-2 w-full bg-slate-700 rounded-full overflow-hidden">
+                             <div id="sender-bar" class="h-full bg-blue-500 w-0 progress-fill"></div>
+                         </div>
+                    </div>
                 </div>
 
             </div>
         </div>
 
-        <!-- SCREEN 3: SHOP (RECEIVER) -->
+        <!-- SCREEN 3: RECEIVER -->
         <div id="screen-receiver" class="w-full flex-1 flex flex-col absolute inset-0 z-30 bg-slate-900 translate-x-full transition-transform duration-300">
-            <!-- Sidebar / ID Display -->
+            <!-- Sidebar -->
             <div class="bg-slate-800 border-b border-slate-700 p-4 flex flex-col md:flex-row justify-between items-center gap-4">
                 <div class="flex items-center gap-3">
-                    <span class="text-slate-400 text-sm">Your Shop ID:</span>
-                    <div class="bg-slate-900 border border-slate-600 px-4 py-2 rounded-lg font-mono text-green-400 font-bold text-lg select-all" id="my-peer-id">
-                        Generating...
-                    </div>
+                    <span class="text-slate-400 text-sm">Shop ID:</span>
+                    <div class="bg-slate-900 border border-slate-600 px-4 py-2 rounded-lg font-mono text-green-400 font-bold text-lg select-all" id="my-peer-id">Generating...</div>
                 </div>
-                <div class="text-xs text-slate-500">
-                    <i class="fa-solid fa-circle-info"></i> Customers must enter this ID to send files.
-                </div>
+                <div class="text-xs text-slate-500"><i class="fa-solid fa-wifi"></i> Waiting for customers...</div>
             </div>
 
             <!-- File List -->
-            <div id="file-list" class="flex-1 overflow-y-auto p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 content-start">
-                <!-- Received files go here -->
-                <div id="waiting-msg" class="col-span-full flex flex-col items-center justify-center py-20 text-slate-500 opacity-50">
-                    <div class="relative w-16 h-16 mb-4">
-                        <div class="absolute inset-0 bg-blue-500 rounded-full pulse-ring"></div>
-                        <div class="relative w-full h-full bg-slate-700 rounded-full flex items-center justify-center">
-                            <i class="fa-solid fa-satellite-dish text-2xl"></i>
-                        </div>
-                    </div>
-                    <p>Waiting for connections...</p>
-                </div>
-            </div>
+            <div id="file-list" class="flex-1 overflow-y-auto p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 content-start"></div>
         </div>
-
     </div>
+    
+    <!-- DEBUG CONSOLE (Hidden by default, useful for troubleshooting) -->
+    <div id="debug-log" class="fixed bottom-0 left-0 w-full bg-black/80 text-[10px] font-mono text-green-400 p-2 max-h-20 overflow-y-auto z-50 pointer-events-none"></div>
 
     <!-- LOGIC -->
     <script>
+        // --- CONFIGURATION ---
+        // 64KB chunks prevents browser crashing on large files
+        const CHUNK_SIZE = 64 * 1024; 
+        
         let peer = null;
         let conn = null;
-        let myId = '';
-        let receivedFiles = []; // Store blobs for zip download
+        let receivedFiles = [];
+        let incomingTransfers = {}; // Track partial downloads on receiver
 
-        // Initialize App
+        function log(msg) {
+            const el = document.getElementById('debug-log');
+            el.innerHTML += `<div>> ${msg}</div>`;
+            el.scrollTop = el.scrollHeight;
+            console.log(msg);
+        }
+
         function setupMode(mode) {
             document.getElementById('screen-setup').classList.add('-translate-y-full');
-            
-            if (mode === 'sender') {
-                document.getElementById('screen-sender').classList.remove('translate-x-full');
-            } else {
+            if (mode === 'sender') document.getElementById('screen-sender').classList.remove('translate-x-full');
+            else {
                 document.getElementById('screen-receiver').classList.remove('translate-x-full');
                 document.getElementById('shop-controls').classList.remove('hidden');
                 initShopMode();
@@ -160,169 +166,237 @@
         }
 
         // ===============================================
-        // SHOP LOGIC (RECEIVER)
+        // SHOP (RECEIVER)
         // ===============================================
         function initShopMode() {
-            // Try to use a consistent ID first, fallback to random
-            const preferredId = prompt("Create a Shop ID (e.g. 'vantal-main'):", "vantal-" + Math.floor(Math.random()*1000));
+            const preferredId = prompt("Enter Shop ID (e.g. vantal):", "vantal");
             if(!preferredId) return location.reload();
 
-            peer = new Peer(preferredId, { debug: 2 });
+            peer = new Peer(preferredId);
 
             peer.on('open', (id) => {
-                myId = id;
                 document.getElementById('my-peer-id').innerText = id;
-                setStatus('ONLINE (Hosting)', 'green');
+                setStatus('ONLINE', 'green');
+                log("Shop Ready: " + id);
             });
 
             peer.on('connection', (c) => {
-                // New Customer Connected
                 conn = c;
-                setStatus('CONNECTED TO CUSTOMER', 'blue');
-                document.getElementById('waiting-msg').classList.add('hidden');
+                setStatus('CUSTOMER CONNECTED', 'blue');
+                log("Customer connected!");
 
-                conn.on('data', (data) => {
-                    handleIncomingData(data);
-                });
-
-                conn.on('close', () => setStatus('ONLINE (Hosting)', 'green'));
+                conn.on('data', (data) => handleIncomingData(data));
+                conn.on('close', () => setStatus('ONLINE', 'green'));
             });
-
-            peer.on('error', (err) => {
-                if(err.type === 'unavailable-id') {
-                    alert(`ID "${preferredId}" is taken. Please choose another.`);
-                    location.reload();
-                } else {
-                    alert("Connection Error: " + err.type);
-                }
-            });
+            
+            peer.on('error', (err) => alert("Error: " + err.type));
         }
 
         function handleIncomingData(data) {
-            // data structure: { file: ArrayBuffer, name: string, type: string, size: number }
-            const blob = new Blob([data.file], { type: data.type });
-            receivedFiles.push({ name: data.name, blob: blob });
+            // PROTOCOL: 
+            // 1. { type: 'start', id, name, size }
+            // 2. { type: 'chunk', id, data, current, total }
+            // 3. { type: 'end', id }
 
-            // Create UI Card
-            const card = document.createElement('div');
-            card.className = "bg-slate-800 border border-slate-700 p-4 rounded-xl flex items-center justify-between fade-in hover:border-blue-500 transition-colors";
-            
-            const sizeMB = (data.size / (1024*1024)).toFixed(2);
-            
-            card.innerHTML = `
-                <div class="flex items-center gap-3 overflow-hidden">
-                    <div class="w-10 h-10 bg-slate-700 rounded-lg flex items-center justify-center text-blue-400 shrink-0">
-                        <i class="${getFileIcon(data.name)}"></i>
+            if (data.type === 'start') {
+                log(`Starting download: ${data.name}`);
+                // Create card placeholder
+                createFileCard(data.id, data.name, data.size);
+                
+                incomingTransfers[data.id] = {
+                    name: data.name,
+                    size: data.size,
+                    chunks: [],
+                    receivedSize: 0
+                };
+            } 
+            else if (data.type === 'chunk') {
+                const transfer = incomingTransfers[data.id];
+                if(transfer) {
+                    transfer.chunks.push(data.data); // data.data is ArrayBuffer
+                    transfer.receivedSize += data.data.byteLength;
+                    
+                    // Update UI Progress
+                    const percent = (transfer.receivedSize / transfer.size) * 100;
+                    updateCardProgress(data.id, percent);
+                }
+            } 
+            else if (data.type === 'end') {
+                log(`Download complete: ${incomingTransfers[data.id].name}`);
+                finalizeFile(data.id);
+            }
+        }
+
+        function createFileCard(id, name, size) {
+            const sizeMB = (size / (1024*1024)).toFixed(2);
+            const div = document.createElement('div');
+            div.id = `card-${id}`;
+            div.className = "bg-slate-800 border border-slate-700 p-4 rounded-xl fade-in relative overflow-hidden";
+            div.innerHTML = `
+                <div class="flex items-center gap-3 relative z-10">
+                    <div class="w-10 h-10 bg-slate-700 rounded-lg flex items-center justify-center text-slate-500 shrink-0 icon-box">
+                        <i class="fa-solid fa-spinner fa-spin"></i>
                     </div>
-                    <div class="flex flex-col overflow-hidden">
-                        <h4 class="font-bold text-white text-sm truncate" title="${data.name}">${data.name}</h4>
-                        <span class="text-xs text-slate-500">${sizeMB} MB • Received</span>
+                    <div class="flex-1 overflow-hidden">
+                        <h4 class="font-bold text-white text-sm truncate">${name}</h4>
+                        <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+                            <span>${sizeMB} MB</span>
+                            <span class="status-text">Receiving...</span>
+                        </div>
                     </div>
                 </div>
-                <button onclick="saveSingleFile(this)" class="text-slate-400 hover:text-green-400 p-2 transition-colors">
-                    <i class="fa-solid fa-download"></i>
-                </button>
+                <!-- Progress Background -->
+                <div class="absolute bottom-0 left-0 h-1 bg-blue-500 w-0 progress-bar transition-all duration-200"></div>
             `;
-            
-            // Attach blob to button for saving
-            const btn = card.querySelector('button');
-            btn.blob = blob;
-            btn.filename = data.name;
+            document.getElementById('file-list').prepend(div);
+        }
 
-            document.getElementById('file-list').prepend(card);
+        function updateCardProgress(id, percent) {
+            const card = document.getElementById(`card-${id}`);
+            if(card) {
+                card.querySelector('.progress-bar').style.width = `${percent}%`;
+            }
+        }
+
+        function finalizeFile(id) {
+            const transfer = incomingTransfers[id];
+            const blob = new Blob(transfer.chunks);
+            receivedFiles.push({ name: transfer.name, blob: blob });
+            
+            // Update Card UI
+            const card = document.getElementById(`card-${id}`);
+            if(card) {
+                card.classList.add('border-green-500');
+                card.querySelector('.progress-bar').classList.add('bg-green-500');
+                card.querySelector('.status-text').innerText = "Complete";
+                card.querySelector('.status-text').classList.add('text-green-400');
+                
+                const iconBox = card.querySelector('.icon-box');
+                iconBox.innerHTML = '<i class="fa-solid fa-check text-green-500"></i>';
+                
+                // Add download button
+                const btn = document.createElement('button');
+                btn.className = "absolute right-4 top-4 text-slate-400 hover:text-white";
+                btn.innerHTML = '<i class="fa-solid fa-download"></i>';
+                btn.onclick = () => saveAs(blob, transfer.name);
+                card.appendChild(btn);
+            }
+            
+            // Cleanup memory
+            delete incomingTransfers[id];
         }
 
         // ===============================================
-        // CUSTOMER LOGIC (SENDER)
+        // CUSTOMER (SENDER)
         // ===============================================
         function connectToShop() {
             const targetId = document.getElementById('target-id').value.trim();
-            if(!targetId) return alert("Enter an ID");
+            if(!targetId) return alert("Enter ID");
 
-            peer = new Peer(); // Random ID for customer
-
+            peer = new Peer();
             peer.on('open', () => {
+                log("Connecting to " + targetId);
                 conn = peer.connect(targetId);
                 
                 conn.on('open', () => {
                     document.getElementById('sender-step-1').classList.add('hidden');
                     document.getElementById('sender-step-2').classList.remove('hidden');
-                    setStatus('CONNECTED TO SHOP', 'blue');
+                    setStatus('CONNECTED', 'blue');
+                    log("Connected!");
                 });
 
-                conn.on('error', (err) => alert("Connection failed."));
-                conn.on('close', () => {
-                    alert("Shop disconnected.");
-                    location.reload();
-                });
+                conn.on('error', (err) => alert("Connection Failed"));
             });
         }
 
-        function sendFiles(files) {
-            if(!conn || !conn.open) return alert("Not connected!");
+        async function startUploadQueue(files) {
+            const input = document.getElementById('file-input');
+            const dropIcon = document.getElementById('drop-icon');
+            const dropSpinner = document.getElementById('drop-spinner');
+            
+            dropIcon.classList.add('hidden');
+            dropSpinner.classList.remove('hidden');
+            input.disabled = true;
 
-            const status = document.getElementById('upload-status');
-            let sentCount = 0;
+            for (let file of files) {
+                await sendSingleFile(file);
+            }
 
-            Array.from(files).forEach(file => {
-                status.innerHTML = `<span class="text-blue-400 animate-pulse">Sending ${file.name}...</span>`;
-                
+            dropIcon.classList.remove('hidden');
+            dropSpinner.classList.add('hidden');
+            input.disabled = false;
+            input.value = '';
+            
+            document.getElementById('sender-filename').innerText = "All Sent!";
+            document.getElementById('sender-percent').innerText = "100%";
+        }
+
+        function sendSingleFile(file) {
+            return new Promise((resolve) => {
+                const transferId = Math.random().toString(36).substr(2, 9);
+                log(`Processing ${file.name} (${file.size} bytes)`);
+
+                // Update UI
+                document.getElementById('sender-progress-container').classList.remove('hidden');
+                document.getElementById('sender-filename').innerText = file.name;
+                const progressBar = document.getElementById('sender-bar');
+                const percentText = document.getElementById('sender-percent');
+
+                // 1. Send Start Metadata
+                conn.send({ type: 'start', id: transferId, name: file.name, size: file.size });
+
                 const reader = new FileReader();
-                reader.onload = (e) => {
-                    const blob = new Blob([e.target.result], { type: file.type });
+                reader.onload = async (e) => {
+                    const buffer = e.target.result;
+                    const totalChunks = Math.ceil(buffer.byteLength / CHUNK_SIZE);
                     
-                    conn.send({
-                        file: blob,
-                        name: file.name,
-                        size: file.size,
-                        type: file.type
-                    });
-                    
-                    sentCount++;
-                    if(sentCount === files.length) {
-                        status.innerHTML = `<span class="text-green-500 font-bold"><i class="fa-solid fa-check"></i> Sent! Shop has received files.</span>`;
-                        setTimeout(() => status.innerHTML = '', 3000);
+                    // 2. Loop Chunks
+                    for (let i = 0; i < totalChunks; i++) {
+                        const start = i * CHUNK_SIZE;
+                        const end = start + CHUNK_SIZE;
+                        const chunk = buffer.slice(start, end);
+                        
+                        // Critical: Wait slightly between chunks to prevent flooding UDP
+                        if(i % 100 === 0) await new Promise(r => setTimeout(r, 10));
+
+                        conn.send({
+                            type: 'chunk',
+                            id: transferId,
+                            data: chunk
+                        });
+                        
+                        // Update UI
+                        const pct = Math.round(((i + 1) / totalChunks) * 100);
+                        progressBar.style.width = `${pct}%`;
+                        percentText.innerText = `${pct}%`;
                     }
+
+                    // 3. Send End
+                    conn.send({ type: 'end', id: transferId });
+                    log(`Sent ${file.name}`);
+                    resolve();
                 };
                 reader.readAsArrayBuffer(file);
             });
         }
 
         // ===============================================
-        // UTILS & DOWNLOADS
+        // UTILS
         // ===============================================
-
         function setStatus(msg, color) {
             const el = document.getElementById('connection-status');
             const dot = document.getElementById('status-dot');
             el.innerText = msg;
             
-            if(color === 'green') dot.className = "absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-slate-900";
-            else if(color === 'blue') dot.className = "absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-blue-500 rounded-full border-2 border-slate-900 animate-pulse";
-            else dot.className = "absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-slate-900";
-        }
-
-        function saveSingleFile(btn) {
-            saveAs(btn.blob, btn.filename);
+            const colorClass = color === 'green' ? 'bg-green-500' : (color === 'blue' ? 'bg-blue-500' : 'bg-red-500');
+            dot.className = `absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-slate-900 ${colorClass} ${color === 'blue' ? 'animate-pulse' : ''}`;
         }
 
         function downloadAll() {
-            if(receivedFiles.length === 0) return alert("No files received yet.");
-            
+            if(receivedFiles.length === 0) return alert("No files.");
             const zip = new JSZip();
             receivedFiles.forEach(f => zip.file(f.name, f.blob));
-            
-            zip.generateAsync({type:"blob"}).then(function(content) {
-                saveAs(content, "vantal_customer_files.zip");
-            });
-        }
-
-        function getFileIcon(name) {
-            if(name.match(/\.(jpg|jpeg|png|gif)$/i)) return 'fa-solid fa-image text-purple-400';
-            if(name.match(/\.(pdf)$/i)) return 'fa-solid fa-file-pdf text-red-400';
-            if(name.match(/\.(doc|docx)$/i)) return 'fa-solid fa-file-word text-blue-400';
-            if(name.match(/\.(zip|rar)$/i)) return 'fa-solid fa-file-zipper text-yellow-400';
-            return 'fa-solid fa-file text-slate-400';
+            zip.generateAsync({type:"blob"}).then(c => saveAs(c, "vantal_files.zip"));
         }
     </script>
 </body>
