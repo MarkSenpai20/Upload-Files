@@ -3,15 +3,15 @@ import {
   Wifi, 
   UploadCloud, 
   Download, 
+  FileText, 
   Monitor, 
   Smartphone, 
   Loader2,
   Power,
   Edit3,
   ArrowRight,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle
+  CheckCircle,
+  XCircle
 } from 'lucide-react';
 
 // --- PeerJS Loader ---
@@ -26,35 +26,23 @@ const loadPeerJS = () => {
   });
 };
 
-const formatBytes = (bytes) => {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-};
-
 export default function App() {
-  const [role, setRole] = useState('home'); 
+  const [role, setRole] = useState('home'); // home, host, sender
   const [customId, setCustomId] = useState('');
   const [peerId, setPeerId] = useState('');
   const [conn, setConn] = useState(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [files, setFiles] = useState([]); // Receiver's file list
   
-  // -- File Management --
-  const [files, setFiles] = useState([]); 
-  const incomingFilesRef = useRef({}); 
+  // Refs for data handling (avoids re-renders during transfer)
   const peerEngine = useRef(null);
-  
-  // -- Sender Specific --
-  const [targetId, setTargetId] = useState('');
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [currentFileName, setCurrentFileName] = useState('');
-  const [sendingState, setSendingState] = useState('idle'); // idle, waiting_ack, sending, done
+  const incomingBuffer = useRef({}); 
 
-  // We need to keep track of the file to send across re-renders for the ACK logic
-  const fileToSendRef = useRef(null);
+  // --- Sender Specific State ---
+  const [targetId, setTargetId] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0); // 0 to 100
+  const [currentFileName, setCurrentFileName] = useState('');
 
   useEffect(() => {
     loadPeerJS().catch(err => console.error("PeerJS Load Error:", err));
@@ -71,8 +59,7 @@ export default function App() {
       setError("Please enter a name for your shop.");
       return;
     }
-
-    setStatus('Starting Host...');
+    setStatus('Initializing...');
     setError('');
     
     const Peer = await loadPeerJS();
@@ -82,7 +69,7 @@ export default function App() {
 
     peer.on('open', (id) => {
       setPeerId(id);
-      setStatus('Online');
+      setStatus('Online & Waiting');
       setRole('host');
     });
 
@@ -90,11 +77,16 @@ export default function App() {
       setConn(connection);
       
       connection.on('data', (data) => {
-        handleIncomingData(data, connection);
+        // Simple "Stream" listener
+        if (data.type === 'stream-chunk') {
+          handleStreamChunk(data);
+        }
       });
       
       connection.on('close', () => {
         setConn(null);
+        // Clear partial buffers if connection drops to free RAM
+        incomingBuffer.current = {}; 
       });
     });
 
@@ -109,83 +101,45 @@ export default function App() {
     peerEngine.current = peer;
   };
 
-  const handleIncomingData = (data, connection) => {
-    // 1. HEADER: Sender wants to send a file
-    if (data.type === 'HEADER') {
-      const { id, name, size, type } = data;
-      
-      // Initialize storage
-      incomingFilesRef.current[id] = {
+  // The Receiver logic is now "Silent". It collects data but updates UI only when done.
+  const handleStreamChunk = (data) => {
+    const { fileId, name, size, type, chunk, offset } = data;
+    
+    // 1. Initialize buffer if new file
+    if (!incomingBuffer.current[fileId]) {
+      incomingBuffer.current[fileId] = {
         name,
         size,
         type,
-        receivedBytes: 0,
-        chunks: [],
-        lastUpdate: Date.now()
+        received: 0,
+        chunks: []
+      };
+    }
+
+    const buffer = incomingBuffer.current[fileId];
+    buffer.chunks.push(chunk);
+    buffer.received += chunk.byteLength;
+
+    // 2. Check if complete
+    if (buffer.received >= buffer.size) {
+      // Reassemble the File
+      const blob = new Blob(buffer.chunks, { type: buffer.type });
+      const url = URL.createObjectURL(blob);
+      
+      const newFile = {
+        id: fileId,
+        name: buffer.name,
+        size: (buffer.size / 1024).toFixed(1) + ' KB',
+        url: url,
+        timestamp: new Date().toLocaleTimeString()
       };
 
-      // Create UI Card
-      setFiles(prev => [{
-        id,
-        name,
-        sizeDisplay: formatBytes(size),
-        progress: 0,
-        status: 'receiving',
-        url: null
-      }, ...prev]);
-
-      // CRITICAL: Send ACK back to Sender
-      console.log("Header received. Sending ACK.");
-      connection.send({ type: 'ACK', id: id });
-    } 
-    
-    // 2. CHUNK: Actual Data
-    else if (data.type === 'CHUNK') {
-      const { id, chunk } = data;
-      const fileMeta = incomingFilesRef.current[id];
+      // NOW we update the UI (User sees file pop up instantly)
+      setFiles(prev => [newFile, ...prev]);
       
-      if (!fileMeta) return;
-
-      fileMeta.chunks.push(chunk);
-      fileMeta.receivedBytes += chunk.byteLength;
-
-      // Throttle UI updates to every 500ms to save performance
-      const now = Date.now();
-      if (now - fileMeta.lastUpdate > 500 || fileMeta.receivedBytes === fileMeta.size) {
-        const percent = Math.min(100, Math.round((fileMeta.receivedBytes / fileMeta.size) * 100));
-        
-        setFiles(prev => prev.map(f => {
-          if (f.id === id) return { ...f, progress: percent };
-          return f;
-        }));
-        fileMeta.lastUpdate = now;
-      }
-
-      if (fileMeta.receivedBytes >= fileMeta.size) {
-        finalizeFile(id);
-      }
+      // Cleanup memory
+      delete incomingBuffer.current[fileId];
     }
-  };
-
-  const finalizeFile = (id) => {
-    const meta = incomingFilesRef.current[id];
-    const blob = new Blob(meta.chunks, { type: meta.type });
-    const url = URL.createObjectURL(blob);
-
-    setFiles(prev => prev.map(f => {
-      if (f.id === id) {
-        return { 
-          ...f, 
-          status: 'completed', 
-          progress: 100,
-          url: url 
-        };
-      }
-      return f;
-    }));
-    
-    // Clear chunks from memory to free up RAM, but keep blob URL
-    incomingFilesRef.current[id].chunks = []; 
   };
 
   const destroyHost = () => {
@@ -195,7 +149,7 @@ export default function App() {
     setConn(null);
     setPeerId('');
     setCustomId('');
-    incomingFilesRef.current = {};
+    incomingBuffer.current = {};
   };
 
   // ============================
@@ -217,14 +171,6 @@ export default function App() {
         setRole('sender');
       });
       
-      // Listen for ACKs
-      connection.on('data', (data) => {
-        if (data.type === 'ACK') {
-          console.log("ACK Received. Starting Transfer.");
-          startStreamingFile(connection, data.id);
-        }
-      });
-
       connection.on('error', () => setStatus('Connection Failed'));
       connection.on('close', () => {
         setStatus('Disconnected');
@@ -237,79 +183,61 @@ export default function App() {
     peer.on('error', () => setStatus('Shop not found.'));
   };
 
-  const initiateSend = (e) => {
+  const sendFile = (e) => {
     const file = e.target.files[0];
     if (!file || !conn) return;
 
     setCurrentFileName(file.name);
-    setUploadProgress(0);
-    setSendingState('waiting_ack');
-    fileToSendRef.current = file;
+    setUploadProgress(1); // Start progress at 1% to show UI
 
-    // Unique ID
+    const CHUNK_SIZE = 16 * 1024; // 16KB chunks
     const fileId = Math.random().toString(36).substr(2, 9);
-
-    // Send Header and Wait
-    conn.send({
-      type: 'HEADER',
-      id: fileId,
-      name: file.name,
-      size: file.size,
-      type: file.type
-    });
-  };
-
-  const startStreamingFile = (connection, fileId) => {
-    setSendingState('sending');
-    const file = fileToSendRef.current;
-    if (!file) return;
-
-    const CHUNK_SIZE = 16 * 1024; // 16KB
     let offset = 0;
 
-    const sendLoop = () => {
-      // Flow Control: Don't flood the connection
-      if (connection.dataChannel.bufferedAmount > 10 * 1024 * 1024) {
-        // If buffer is over 10MB, wait 50ms and try again
-        setTimeout(sendLoop, 50);
-        return;
-      }
-
+    // Recursive loop to send chunks without freezing UI
+    const sendNextChunk = () => {
+      // Check if user disconnected or file done
       if (offset >= file.size) {
         setUploadProgress(100);
-        setSendingState('done');
         setTimeout(() => {
-            setSendingState('idle');
-            setUploadProgress(0);
-            setCurrentFileName('');
-        }, 3000);
+          setUploadProgress(0); // Reset UI
+          setCurrentFileName('');
+        }, 2500);
         return;
       }
 
+      // Slice the file
       const slice = file.slice(offset, offset + CHUNK_SIZE);
       const reader = new FileReader();
-      
-      reader.onload = (event) => {
-        if (!connection.open) return;
 
-        connection.send({
-          type: 'CHUNK',
-          id: fileId,
+      reader.onload = (event) => {
+        if (!conn.open) return; // Stop if connection lost
+
+        // Send Data Packet
+        conn.send({
+          type: 'stream-chunk',
+          fileId: fileId,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          offset: offset,
           chunk: event.target.result
         });
 
+        // Update Offset & Progress
         offset += CHUNK_SIZE;
         const percent = Math.min(100, Math.round((offset / file.size) * 100));
         setUploadProgress(percent);
 
-        // Keep loop going
-        setTimeout(sendLoop, 0); 
+        // Schedule next chunk (0ms delay to keep CPU free)
+        setTimeout(sendNextChunk, 0);
       };
 
       reader.readAsArrayBuffer(slice);
     };
 
-    sendLoop();
+    // Ignite the loop
+    sendNextChunk();
   };
 
   // ============================
@@ -322,13 +250,13 @@ export default function App() {
         <div className="max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 gap-8">
           
           <div className="col-span-1 md:col-span-2 text-center mb-4 animate-in fade-in zoom-in-95 duration-700">
-            <h1 className="text-5xl font-extrabold tracking-tight mb-2 text-white">
+            <h1 className="text-4xl font-extrabold tracking-tight mb-2 text-white">
               <span className="text-blue-500">Vantal</span>Share
             </h1>
-            <p className="text-slate-400">Mark Cruz's Direct Link System (V4 Robust)</p>
+            <p className="text-slate-400">Mark Cruz's Direct Link System (V2.5)</p>
           </div>
 
-          <div className="bg-slate-800 border-2 border-slate-700 rounded-3xl p-8 shadow-xl hover:border-blue-500/50 transition-colors">
+          <div className="bg-slate-800 border-2 border-slate-700 rounded-3xl p-8 shadow-xl hover:border-blue-500 transition-colors">
             <div className="flex items-center space-x-4 mb-6">
                 <div className="bg-blue-600 w-12 h-12 rounded-xl flex items-center justify-center shadow-lg shadow-blue-600/20">
                     <Monitor className="w-6 h-6 text-white" />
@@ -364,7 +292,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="bg-slate-800 border-2 border-slate-700 rounded-3xl p-8 shadow-xl hover:border-emerald-500/50 transition-colors">
+          <div className="bg-slate-800 border-2 border-slate-700 rounded-3xl p-8 shadow-xl hover:border-emerald-500 transition-colors">
              <div className="flex items-center space-x-4 mb-6">
                 <div className="bg-emerald-600 w-12 h-12 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-600/20">
                     <Smartphone className="w-6 h-6 text-white" />
@@ -400,11 +328,11 @@ export default function App() {
     );
   }
 
-  // --- HOST SCREEN ---
+  // --- HOST SCREEN (V2 Style - Simple List) ---
   if (role === 'host') {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-200 p-6 font-sans">
-        <header className="max-w-3xl mx-auto flex items-center justify-between mb-8 sticky top-0 bg-slate-950/80 backdrop-blur-md z-10 py-4">
+        <header className="max-w-3xl mx-auto flex items-center justify-between mb-8 sticky top-0 bg-slate-950/90 backdrop-blur-md z-10 py-4 border-b border-slate-800/50">
           <div className="flex items-center space-x-3">
              <div className="bg-blue-600 p-2 rounded-lg">
                 <Monitor className="w-5 h-5 text-white" />
@@ -413,7 +341,7 @@ export default function App() {
                 <h1 className="font-bold text-lg leading-none">{customId}</h1>
                 <p className="text-xs text-slate-400 flex items-center mt-1">
                    <span className={`w-2 h-2 rounded-full mr-2 ${conn ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`}></span>
-                   {conn ? 'Device Connected' : 'Waiting for Sender...'}
+                   {conn ? 'Sender Connected' : 'Waiting for Sender...'}
                 </p>
              </div>
           </div>
@@ -427,54 +355,41 @@ export default function App() {
         </header>
 
         <main className="max-w-3xl mx-auto space-y-4">
-           {files.length === 0 && (
-             <div className="border-2 border-dashed border-slate-800 rounded-2xl p-20 text-center animate-in fade-in zoom-in-95">
+           {files.length === 0 ? (
+             <div className="border-2 border-dashed border-slate-800 rounded-2xl p-16 text-center animate-in fade-in zoom-in-95">
                 <Wifi className="w-16 h-16 mx-auto mb-6 text-slate-700" />
                 <h3 className="text-2xl font-bold text-slate-700">Ready to Receive</h3>
-                <p className="text-slate-500 mt-2">Any files sent to <span className="text-white font-mono">{customId}</span> will appear here.</p>
+                <p className="text-slate-500 mt-2">Files will appear here <span className="text-white">after</span> they finish uploading.</p>
              </div>
-           )}
-
-           {files.map(file => (
-             <div key={file.id} className="bg-slate-900 rounded-2xl p-5 border border-slate-800 relative overflow-hidden animate-in slide-in-from-bottom-2">
-                <div 
-                  className="absolute bottom-0 left-0 h-1 bg-blue-600 transition-all duration-500 ease-out" 
-                  style={{ width: `${file.progress}%` }}
-                />
-                <div className="flex items-center justify-between relative z-10">
-                   <div className="flex items-center space-x-4 overflow-hidden">
-                      <div className={`p-3 rounded-xl flex-shrink-0 ${file.status === 'completed' ? 'bg-green-500/10 text-green-500' : 'bg-blue-500/10 text-blue-500'}`}>
-                         {file.status === 'completed' ? <CheckCircle2 className="w-6 h-6" /> : <Loader2 className="w-6 h-6 animate-spin" />}
-                      </div>
-                      <div className="min-w-0">
-                         <h3 className="font-bold text-white truncate max-w-[200px] md:max-w-md">{file.name}</h3>
-                         <p className="text-xs text-slate-500 font-mono mt-1">
-                            {file.status === 'completed' ? 'Transfer Complete' : `Receiving... ${file.progress}%`} • {file.sizeDisplay}
-                         </p>
-                      </div>
+           ) : (
+             files.map(file => (
+               <div key={file.id} className="bg-slate-900 rounded-xl p-4 flex items-center justify-between border border-slate-800 hover:border-blue-500/50 transition-colors animate-in slide-in-from-bottom-2">
+                 <div className="flex items-center space-x-4 overflow-hidden">
+                   <div className="bg-slate-800 p-3 rounded-lg flex-shrink-0">
+                     <FileText className="w-6 h-6 text-blue-400" />
                    </div>
-
-                   {file.status === 'completed' ? (
-                     <a 
-                       href={file.url} 
-                       download={file.name}
-                       className="bg-white text-slate-900 hover:bg-blue-50 px-4 py-2 rounded-lg text-sm font-bold transition-colors flex items-center shadow-lg shadow-white/5"
-                     >
-                       <Download className="w-4 h-4 mr-2" />
-                       Save
-                     </a>
-                   ) : (
-                     <span className="text-sm font-bold text-blue-500">{file.progress}%</span>
-                   )}
-                </div>
-             </div>
-           ))}
+                   <div className="min-w-0">
+                     <h3 className="font-bold text-white truncate max-w-[200px]">{file.name}</h3>
+                     <p className="text-xs text-slate-500">{file.size} • {file.timestamp}</p>
+                   </div>
+                 </div>
+                 <a 
+                   href={file.url} 
+                   download={file.name}
+                   className="flex-shrink-0 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors flex items-center space-x-2 shadow-lg shadow-blue-900/20"
+                 >
+                   <Download className="w-4 h-4" />
+                   <span>Save</span>
+                 </a>
+               </div>
+             ))
+           )}
         </main>
       </div>
     );
   }
 
-  // --- SENDER SCREEN ---
+  // --- SENDER SCREEN (With Progress UI) ---
   if (role === 'sender') {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 p-6 font-sans flex flex-col items-center justify-center">
@@ -492,7 +407,7 @@ export default function App() {
           <div className="mb-8">
             <label className={`
               relative block w-full aspect-square border-2 border-dashed rounded-3xl flex flex-col items-center justify-center cursor-pointer transition-all duration-300 overflow-hidden
-              ${sendingState !== 'idle'
+              ${uploadProgress > 0 
                   ? 'border-blue-500 bg-blue-50' 
                   : conn 
                     ? 'border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 hover:shadow-lg hover:-translate-y-1' 
@@ -502,12 +417,13 @@ export default function App() {
               <input 
                 type="file" 
                 className="hidden" 
-                onChange={initiateSend} 
-                disabled={!conn || sendingState !== 'idle'} 
+                onChange={sendFile} 
+                disabled={!conn || uploadProgress > 0} 
               />
               
-              {sendingState !== 'idle' ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/90 z-20">
+              {/* THE PROGRESS OVERLAY */}
+              {uploadProgress > 0 ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/95 z-20">
                   <div className="w-24 h-24 relative mb-4">
                      <svg className="w-full h-full" viewBox="0 0 100 100">
                         <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" strokeWidth="8" />
@@ -515,10 +431,17 @@ export default function App() {
                      </svg>
                      <div className="absolute inset-0 flex items-center justify-center font-bold text-blue-600 text-xl">{uploadProgress}%</div>
                   </div>
-                  <p className="text-sm font-bold text-slate-600 truncate max-w-[80%] px-4">{currentFileName}</p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {sendingState === 'waiting_ack' ? 'Waiting for Receiver...' : 'Sending Data...'}
-                  </p>
+                  <p className="text-sm font-bold text-slate-800 truncate max-w-[80%] px-4">{currentFileName}</p>
+                  
+                  {uploadProgress === 100 ? (
+                    <p className="text-xs text-green-600 font-bold mt-2 flex items-center animate-bounce">
+                      <CheckCircle className="w-3 h-3 mr-1" /> Sent Successfully!
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-400 mt-1 flex items-center">
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" /> Sending... Please Wait
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="text-center p-6">
@@ -542,7 +465,6 @@ export default function App() {
           >
             Disconnect
           </button>
-
         </div>
       </div>
     );
