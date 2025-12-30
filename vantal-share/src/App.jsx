@@ -11,7 +11,9 @@ import {
   Edit3,
   ArrowRight,
   CheckCircle,
-  XCircle
+  XCircle,
+  Terminal,
+  Activity
 } from 'lucide-react';
 
 // --- PeerJS Loader ---
@@ -35,6 +37,10 @@ export default function App() {
   const [error, setError] = useState('');
   const [files, setFiles] = useState([]); 
   
+  // --- Debug State ---
+  const [showLogs, setShowLogs] = useState(false);
+  const [logs, setLogs] = useState([]);
+
   // Refs
   const peerEngine = useRef(null);
   const incomingBuffer = useRef({}); 
@@ -44,8 +50,15 @@ export default function App() {
   const [uploadProgress, setUploadProgress] = useState(0); 
   const [currentFileName, setCurrentFileName] = useState('');
 
+  // --- Logger Helper ---
+  const addLog = (msg) => {
+    const time = new Date().toLocaleTimeString().split(' ')[0];
+    setLogs(prev => [`[${time}] ${msg}`, ...prev]);
+    console.log(`[APP] ${msg}`);
+  };
+
   useEffect(() => {
-    loadPeerJS().catch(err => console.error("PeerJS Load Error:", err));
+    loadPeerJS().then(() => addLog("PeerJS Library Loaded")).catch(err => addLog(`PeerJS Load Error: ${err}`));
     return () => {
       if (peerEngine.current) peerEngine.current.destroy();
     };
@@ -60,6 +73,7 @@ export default function App() {
       return;
     }
     setStatus('Initializing...');
+    addLog(`Starting Host with ID: ${customId}`);
     setError('');
     
     const Peer = await loadPeerJS();
@@ -71,29 +85,34 @@ export default function App() {
       setPeerId(id);
       setStatus('Online & Waiting');
       setRole('host');
+      addLog(`Host Online. ID: ${id}`);
     });
 
     peer.on('connection', (connection) => {
       setConn(connection);
+      addLog(`New Connection from: ${connection.peer}`);
       
       connection.on('data', (data) => {
         // 1. Chunk Received
         if (data.type === 'stream-chunk') {
           handleStreamChunk(data);
         }
-        // 2. Final Whistle Received (Force Finish)
+        // 2. Final Whistle
         else if (data.type === 'file-end') {
+          addLog(`Signal: FILE END received for ${data.fileId}`);
           finishFile(data.fileId);
         }
       });
       
       connection.on('close', () => {
         setConn(null);
+        addLog("Connection Closed");
         incomingBuffer.current = {}; 
       });
     });
 
     peer.on('error', (err) => {
+      addLog(`Peer Error: ${err.type}`);
       if (err.type === 'unavailable-id') {
         setError(`"${cleanId}" is taken. Try "${cleanId}-1"`);
       } else {
@@ -109,41 +128,60 @@ export default function App() {
     
     // Initialize buffer
     if (!incomingBuffer.current[fileId]) {
+      addLog(`New Incoming File: ${name} (${(size/1024).toFixed(1)} KB)`);
       incomingBuffer.current[fileId] = {
         name,
         size,
         type,
         received: 0,
-        chunks: []
+        chunks: [],
+        lastLog: 0
       };
     }
 
     const buffer = incomingBuffer.current[fileId];
     buffer.chunks.push(chunk);
     buffer.received += chunk.byteLength;
+
+    // Log progress every 10%
+    const percent = Math.floor((buffer.received / buffer.size) * 100);
+    if (percent % 20 === 0 && percent !== buffer.lastLog) {
+       addLog(`Receiving ${name}: ${percent}%`);
+       buffer.lastLog = percent;
+    }
   };
 
   const finishFile = (fileId) => {
+    addLog(`Attempting to finalize file ${fileId}...`);
     const buffer = incomingBuffer.current[fileId];
-    if (!buffer) return;
-
-    // Create the Blob
-    const blob = new Blob(buffer.chunks, { type: buffer.type });
-    const url = URL.createObjectURL(blob);
     
-    const newFile = {
-      id: fileId,
-      name: buffer.name,
-      size: (buffer.size / 1024).toFixed(1) + ' KB',
-      url: url,
-      timestamp: new Date().toLocaleTimeString()
-    };
+    if (!buffer) {
+        addLog(`CRITICAL ERROR: Buffer not found for ${fileId}. Did we receive chunks?`);
+        return;
+    }
 
-    // Show it in UI
-    setFiles(prev => [newFile, ...prev]);
-    
-    // Clear Memory
-    delete incomingBuffer.current[fileId];
+    addLog(`Buffer Found. Size: ${buffer.received} / ${buffer.size}. Chunks: ${buffer.chunks.length}`);
+
+    try {
+        const blob = new Blob(buffer.chunks, { type: buffer.type });
+        const url = URL.createObjectURL(blob);
+        
+        const newFile = {
+        id: fileId,
+        name: buffer.name,
+        size: (buffer.size / 1024).toFixed(1) + ' KB',
+        url: url,
+        timestamp: new Date().toLocaleTimeString()
+        };
+
+        setFiles(prev => [newFile, ...prev]);
+        addLog(`SUCCESS: File ${buffer.name} ready for download.`);
+        
+        // Clear Memory
+        delete incomingBuffer.current[fileId];
+    } catch (e) {
+        addLog(`Blob Error: ${e.message}`);
+    }
   };
 
   const destroyHost = () => {
@@ -154,6 +192,7 @@ export default function App() {
     setPeerId('');
     setCustomId('');
     incomingBuffer.current = {};
+    setLogs([]);
   };
 
   // ============================
@@ -162,29 +201,39 @@ export default function App() {
   const connectToHost = async () => {
     if (!targetId) return;
     setStatus('Connecting...');
+    addLog(`Connecting to ${targetId}...`);
     const Peer = await loadPeerJS();
     
     const peer = new Peer(); 
     
-    peer.on('open', () => {
+    peer.on('open', (myId) => {
+      addLog(`My Sender ID: ${myId}`);
       const connection = peer.connect(targetId.trim().toLowerCase().replace(/\s+/g, '-'));
       
       connection.on('open', () => {
         setConn(connection);
         setStatus('Connected');
         setRole('sender');
+        addLog(`Connected to Host!`);
       });
       
-      connection.on('error', () => setStatus('Connection Failed'));
+      connection.on('error', (e) => {
+          setStatus('Connection Failed');
+          addLog(`Connection Error: ${e}`);
+      });
       connection.on('close', () => {
         setStatus('Disconnected');
         setConn(null);
+        addLog('Host Disconnected');
       });
       
       peerEngine.current = peer;
     });
     
-    peer.on('error', () => setStatus('Shop not found.'));
+    peer.on('error', (err) => {
+        setStatus('Shop not found.');
+        addLog(`Peer Error: ${err.type}`);
+    });
   };
 
   const sendFile = (e) => {
@@ -193,16 +242,16 @@ export default function App() {
 
     setCurrentFileName(file.name);
     setUploadProgress(1);
+    addLog(`Starting Upload: ${file.name} (${file.size} bytes)`);
 
     const CHUNK_SIZE = 16 * 1024; // 16KB safe chunk
     const fileId = Math.random().toString(36).substr(2, 9);
     let offset = 0;
 
     const sendNextChunk = () => {
-      // Loop Finished?
       if (offset >= file.size) {
-        
-        // --- THE FIX: Send the Final Whistle ---
+        // Send Final Whistle
+        addLog(`Sending FILE END signal.`);
         conn.send({
             type: 'file-end',
             fileId: fileId
@@ -216,12 +265,14 @@ export default function App() {
         return;
       }
 
-      // Read & Send Chunk
       const slice = file.slice(offset, offset + CHUNK_SIZE);
       const reader = new FileReader();
 
       reader.onload = (event) => {
-        if (!conn.open) return; 
+        if (!conn.open) {
+            addLog("Connection lost during upload.");
+            return; 
+        }
 
         conn.send({
           type: 'stream-chunk',
@@ -247,19 +298,46 @@ export default function App() {
   };
 
   // ============================
-  // UI RENDERERS
+  // UI COMPONENTS
   // ============================
+
+  const DebugConsole = () => (
+      <div className={`fixed bottom-0 left-0 right-0 bg-black/90 text-green-400 p-4 font-mono text-xs h-48 overflow-y-auto z-50 transition-transform duration-300 ${showLogs ? 'translate-y-0' : 'translate-y-full'}`}>
+          <div className="flex justify-between items-center mb-2 border-b border-green-900 pb-2 sticky top-0 bg-black">
+              <span className="font-bold flex items-center"><Terminal className="w-4 h-4 mr-2"/> System Logs</span>
+              <button onClick={() => setShowLogs(false)} className="text-red-400 hover:text-white">Close X</button>
+          </div>
+          <div className="space-y-1">
+              {logs.length === 0 && <span className="opacity-50">System ready. Waiting for events...</span>}
+              {logs.map((log, i) => (
+                  <div key={i} className="break-all border-b border-green-900/30 pb-0.5">{log}</div>
+              ))}
+          </div>
+      </div>
+  );
+
+  const LogToggle = () => (
+      <button 
+        onClick={() => setShowLogs(!showLogs)}
+        className="fixed bottom-4 right-4 bg-slate-800 text-slate-400 p-2 rounded-full hover:bg-slate-700 hover:text-white z-40 shadow-lg border border-slate-700"
+        title="Toggle Logs"
+      >
+        <Activity className="w-5 h-5" />
+      </button>
+  );
 
   if (role === 'home') {
     return (
       <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center p-4 font-sans">
+        <DebugConsole />
+        <LogToggle />
         <div className="max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 gap-8">
           
           <div className="col-span-1 md:col-span-2 text-center mb-4 animate-in fade-in zoom-in-95 duration-700">
             <h1 className="text-4xl font-extrabold tracking-tight mb-2 text-white">
               <span className="text-blue-500">Vantal</span>Share
             </h1>
-            <p className="text-slate-400">Mark Cruz's Direct Link System (V2.6 Robust)</p>
+            <p className="text-slate-400">Mark Cruz's Direct Link System (V2.7 Debug)</p>
           </div>
 
           <div className="bg-slate-800 border-2 border-slate-700 rounded-3xl p-8 shadow-xl hover:border-blue-500 transition-colors">
@@ -338,6 +416,8 @@ export default function App() {
   if (role === 'host') {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-200 p-6 font-sans">
+        <DebugConsole />
+        <LogToggle />
         <header className="max-w-3xl mx-auto flex items-center justify-between mb-8 sticky top-0 bg-slate-950/90 backdrop-blur-md z-10 py-4 border-b border-slate-800/50">
           <div className="flex items-center space-x-3">
              <div className="bg-blue-600 p-2 rounded-lg">
@@ -365,7 +445,8 @@ export default function App() {
              <div className="border-2 border-dashed border-slate-800 rounded-2xl p-16 text-center animate-in fade-in zoom-in-95">
                 <Wifi className="w-16 h-16 mx-auto mb-6 text-slate-700" />
                 <h3 className="text-2xl font-bold text-slate-700">Ready to Receive</h3>
-                <p className="text-slate-500 mt-2">Files will appear here <span className="text-white">after</span> they finish uploading.</p>
+                <p className="text-slate-500 mt-2">Files will appear here <span className="text-white">after</span> upload completes.</p>
+                <button onClick={() => setShowLogs(true)} className="mt-4 text-xs text-blue-500 underline">Show System Logs</button>
              </div>
            ) : (
              files.map(file => (
@@ -399,6 +480,8 @@ export default function App() {
   if (role === 'sender') {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 p-6 font-sans flex flex-col items-center justify-center">
+        <DebugConsole />
+        <LogToggle />
         <div className="w-full max-w-md bg-white rounded-3xl shadow-xl p-8 border border-slate-100">
           
           <div className="text-center mb-8">
