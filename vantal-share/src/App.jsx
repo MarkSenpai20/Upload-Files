@@ -13,7 +13,8 @@ import {
   CheckCircle,
   XCircle,
   Terminal,
-  Activity
+  Activity,
+  Play
 } from 'lucide-react';
 
 // --- PeerJS Loader ---
@@ -93,11 +94,28 @@ export default function App() {
       addLog(`New Connection from: ${connection.peer}`);
       
       connection.on('data', (data) => {
-        // 1. Chunk Received
-        if (data.type === 'stream-chunk') {
+        
+        // 1. FILE START (The Fix: Explicit Initialization)
+        if (data.type === 'file-start') {
+          addLog(`Signal: FILE START received for ${data.name}`);
+          // Force create buffer
+          incomingBuffer.current[data.fileId] = {
+            name: data.name,
+            size: data.size,
+            type: data.mime,
+            received: 0,
+            chunks: [],
+            lastLog: 0,
+            startTime: Date.now()
+          };
+        }
+        
+        // 2. CHUNK
+        else if (data.type === 'stream-chunk') {
           handleStreamChunk(data);
         }
-        // 2. Final Whistle
+        
+        // 3. FILE END
         else if (data.type === 'file-end') {
           addLog(`Signal: FILE END received for ${data.fileId}`);
           finishFile(data.fileId);
@@ -124,15 +142,15 @@ export default function App() {
   };
 
   const handleStreamChunk = (data) => {
-    const { fileId, name, size, type, chunk } = data;
+    const { fileId, chunk } = data;
     
-    // Initialize buffer
+    // Safety: If buffer doesn't exist (missed the start signal?), create it now as fallback
     if (!incomingBuffer.current[fileId]) {
-      addLog(`New Incoming File: ${name} (${(size/1024).toFixed(1)} KB)`);
+      addLog(`Warning: Received chunk for unknown file ${fileId}. Creating partial buffer.`);
       incomingBuffer.current[fileId] = {
-        name,
-        size,
-        type,
+        name: "Unknown File",
+        size: 0, 
+        type: "application/octet-stream",
         received: 0,
         chunks: [],
         lastLog: 0
@@ -143,24 +161,30 @@ export default function App() {
     buffer.chunks.push(chunk);
     buffer.received += chunk.byteLength;
 
-    // Log progress every 10%
-    const percent = Math.floor((buffer.received / buffer.size) * 100);
-    if (percent % 20 === 0 && percent !== buffer.lastLog) {
-       addLog(`Receiving ${name}: ${percent}%`);
-       buffer.lastLog = percent;
+    // Detailed Log for the first chunk to prove it arrived
+    if (buffer.chunks.length === 1) {
+        addLog(`First Chunk Received! Size: ${chunk.byteLength} bytes.`);
+    }
+
+    // Log progress every 20%
+    if (buffer.size > 0) {
+        const percent = Math.floor((buffer.received / buffer.size) * 100);
+        if (percent % 20 === 0 && percent !== buffer.lastLog) {
+           addLog(`Receiving... ${percent}%`);
+           buffer.lastLog = percent;
+        }
     }
   };
 
   const finishFile = (fileId) => {
-    addLog(`Attempting to finalize file ${fileId}...`);
     const buffer = incomingBuffer.current[fileId];
     
-    if (!buffer) {
-        addLog(`CRITICAL ERROR: Buffer not found for ${fileId}. Did we receive chunks?`);
+    if (!buffer || buffer.chunks.length === 0) {
+        addLog(`CRITICAL: Buffer empty for ${fileId}. Transfer failed.`);
         return;
     }
 
-    addLog(`Buffer Found. Size: ${buffer.received} / ${buffer.size}. Chunks: ${buffer.chunks.length}`);
+    addLog(`Finalizing: ${buffer.chunks.length} chunks collected. Total: ${buffer.received} bytes.`);
 
     try {
         const blob = new Blob(buffer.chunks, { type: buffer.type });
@@ -169,13 +193,13 @@ export default function App() {
         const newFile = {
         id: fileId,
         name: buffer.name,
-        size: (buffer.size / 1024).toFixed(1) + ' KB',
+        size: (buffer.received / 1024).toFixed(1) + ' KB', // Use received size for accuracy
         url: url,
         timestamp: new Date().toLocaleTimeString()
         };
 
         setFiles(prev => [newFile, ...prev]);
-        addLog(`SUCCESS: File ${buffer.name} ready for download.`);
+        addLog(`SUCCESS: File ready.`);
         
         // Clear Memory
         delete incomingBuffer.current[fileId];
@@ -242,16 +266,25 @@ export default function App() {
 
     setCurrentFileName(file.name);
     setUploadProgress(1);
-    addLog(`Starting Upload: ${file.name} (${file.size} bytes)`);
+    addLog(`Starting Upload: ${file.name}`);
 
     const CHUNK_SIZE = 16 * 1024; // 16KB safe chunk
     const fileId = Math.random().toString(36).substr(2, 9);
     let offset = 0;
 
+    // STEP 1: Send Explicit Start Signal
+    conn.send({
+        type: 'file-start',
+        fileId: fileId,
+        name: file.name,
+        size: file.size,
+        mime: file.type
+    });
+
     const sendNextChunk = () => {
       if (offset >= file.size) {
-        // Send Final Whistle
-        addLog(`Sending FILE END signal.`);
+        // STEP 3: Send Final Whistle
+        addLog(`Upload Complete. Sending END signal.`);
         conn.send({
             type: 'file-end',
             fileId: fileId
@@ -265,21 +298,19 @@ export default function App() {
         return;
       }
 
+      // STEP 2: Stream Chunks
       const slice = file.slice(offset, offset + CHUNK_SIZE);
       const reader = new FileReader();
 
       reader.onload = (event) => {
         if (!conn.open) {
-            addLog("Connection lost during upload.");
+            addLog("Connection lost.");
             return; 
         }
 
         conn.send({
           type: 'stream-chunk',
           fileId: fileId,
-          name: file.name,
-          size: file.size,
-          type: file.type,
           chunk: event.target.result
         });
 
@@ -287,14 +318,14 @@ export default function App() {
         const percent = Math.min(100, Math.round((offset / file.size) * 100));
         setUploadProgress(percent);
 
-        // Keep loop running
         setTimeout(sendNextChunk, 0);
       };
 
       reader.readAsArrayBuffer(slice);
     };
 
-    sendNextChunk();
+    // Small delay to ensure 'file-start' arrives first
+    setTimeout(sendNextChunk, 100);
   };
 
   // ============================
@@ -302,7 +333,7 @@ export default function App() {
   // ============================
 
   const DebugConsole = () => (
-      <div className={`fixed bottom-0 left-0 right-0 bg-black/90 text-green-400 p-4 font-mono text-xs h-48 overflow-y-auto z-50 transition-transform duration-300 ${showLogs ? 'translate-y-0' : 'translate-y-full'}`}>
+      <div className={`fixed bottom-0 left-0 right-0 bg-black/95 text-green-400 p-4 font-mono text-xs h-48 overflow-y-auto z-50 transition-transform duration-300 ${showLogs ? 'translate-y-0' : 'translate-y-full'}`}>
           <div className="flex justify-between items-center mb-2 border-b border-green-900 pb-2 sticky top-0 bg-black">
               <span className="font-bold flex items-center"><Terminal className="w-4 h-4 mr-2"/> System Logs</span>
               <button onClick={() => setShowLogs(false)} className="text-red-400 hover:text-white">Close X</button>
@@ -337,7 +368,7 @@ export default function App() {
             <h1 className="text-4xl font-extrabold tracking-tight mb-2 text-white">
               <span className="text-blue-500">Vantal</span>Share
             </h1>
-            <p className="text-slate-400">Mark Cruz's Direct Link System (V2.7 Debug)</p>
+            <p className="text-slate-400">Mark Cruz's Direct Link System (V2.8 Final Fix)</p>
           </div>
 
           <div className="bg-slate-800 border-2 border-slate-700 rounded-3xl p-8 shadow-xl hover:border-blue-500 transition-colors">
