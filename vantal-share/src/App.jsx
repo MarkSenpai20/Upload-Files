@@ -27,21 +27,21 @@ const loadPeerJS = () => {
 };
 
 export default function App() {
-  const [role, setRole] = useState('home'); // home, host, sender
+  const [role, setRole] = useState('home'); 
   const [customId, setCustomId] = useState('');
   const [peerId, setPeerId] = useState('');
   const [conn, setConn] = useState(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
-  const [files, setFiles] = useState([]); // Receiver's file list
+  const [files, setFiles] = useState([]); 
   
-  // Refs for data handling (avoids re-renders during transfer)
+  // Refs
   const peerEngine = useRef(null);
   const incomingBuffer = useRef({}); 
 
-  // --- Sender Specific State ---
+  // --- Sender Specific ---
   const [targetId, setTargetId] = useState('');
-  const [uploadProgress, setUploadProgress] = useState(0); // 0 to 100
+  const [uploadProgress, setUploadProgress] = useState(0); 
   const [currentFileName, setCurrentFileName] = useState('');
 
   useEffect(() => {
@@ -77,15 +77,18 @@ export default function App() {
       setConn(connection);
       
       connection.on('data', (data) => {
-        // Simple "Stream" listener
+        // 1. Chunk Received
         if (data.type === 'stream-chunk') {
           handleStreamChunk(data);
+        }
+        // 2. Final Whistle Received (Force Finish)
+        else if (data.type === 'file-end') {
+          finishFile(data.fileId);
         }
       });
       
       connection.on('close', () => {
         setConn(null);
-        // Clear partial buffers if connection drops to free RAM
         incomingBuffer.current = {}; 
       });
     });
@@ -101,11 +104,10 @@ export default function App() {
     peerEngine.current = peer;
   };
 
-  // The Receiver logic is now "Silent". It collects data but updates UI only when done.
   const handleStreamChunk = (data) => {
-    const { fileId, name, size, type, chunk, offset } = data;
+    const { fileId, name, size, type, chunk } = data;
     
-    // 1. Initialize buffer if new file
+    // Initialize buffer
     if (!incomingBuffer.current[fileId]) {
       incomingBuffer.current[fileId] = {
         name,
@@ -119,27 +121,29 @@ export default function App() {
     const buffer = incomingBuffer.current[fileId];
     buffer.chunks.push(chunk);
     buffer.received += chunk.byteLength;
+  };
 
-    // 2. Check if complete
-    if (buffer.received >= buffer.size) {
-      // Reassemble the File
-      const blob = new Blob(buffer.chunks, { type: buffer.type });
-      const url = URL.createObjectURL(blob);
-      
-      const newFile = {
-        id: fileId,
-        name: buffer.name,
-        size: (buffer.size / 1024).toFixed(1) + ' KB',
-        url: url,
-        timestamp: new Date().toLocaleTimeString()
-      };
+  const finishFile = (fileId) => {
+    const buffer = incomingBuffer.current[fileId];
+    if (!buffer) return;
 
-      // NOW we update the UI (User sees file pop up instantly)
-      setFiles(prev => [newFile, ...prev]);
-      
-      // Cleanup memory
-      delete incomingBuffer.current[fileId];
-    }
+    // Create the Blob
+    const blob = new Blob(buffer.chunks, { type: buffer.type });
+    const url = URL.createObjectURL(blob);
+    
+    const newFile = {
+      id: fileId,
+      name: buffer.name,
+      size: (buffer.size / 1024).toFixed(1) + ' KB',
+      url: url,
+      timestamp: new Date().toLocaleTimeString()
+    };
+
+    // Show it in UI
+    setFiles(prev => [newFile, ...prev]);
+    
+    // Clear Memory
+    delete incomingBuffer.current[fileId];
   };
 
   const destroyHost = () => {
@@ -188,55 +192,57 @@ export default function App() {
     if (!file || !conn) return;
 
     setCurrentFileName(file.name);
-    setUploadProgress(1); // Start progress at 1% to show UI
+    setUploadProgress(1);
 
-    const CHUNK_SIZE = 16 * 1024; // 16KB chunks
+    const CHUNK_SIZE = 16 * 1024; // 16KB safe chunk
     const fileId = Math.random().toString(36).substr(2, 9);
     let offset = 0;
 
-    // Recursive loop to send chunks without freezing UI
     const sendNextChunk = () => {
-      // Check if user disconnected or file done
+      // Loop Finished?
       if (offset >= file.size) {
+        
+        // --- THE FIX: Send the Final Whistle ---
+        conn.send({
+            type: 'file-end',
+            fileId: fileId
+        });
+        
         setUploadProgress(100);
         setTimeout(() => {
-          setUploadProgress(0); // Reset UI
+          setUploadProgress(0);
           setCurrentFileName('');
         }, 2500);
         return;
       }
 
-      // Slice the file
+      // Read & Send Chunk
       const slice = file.slice(offset, offset + CHUNK_SIZE);
       const reader = new FileReader();
 
       reader.onload = (event) => {
-        if (!conn.open) return; // Stop if connection lost
+        if (!conn.open) return; 
 
-        // Send Data Packet
         conn.send({
           type: 'stream-chunk',
           fileId: fileId,
           name: file.name,
           size: file.size,
           type: file.type,
-          offset: offset,
           chunk: event.target.result
         });
 
-        // Update Offset & Progress
         offset += CHUNK_SIZE;
         const percent = Math.min(100, Math.round((offset / file.size) * 100));
         setUploadProgress(percent);
 
-        // Schedule next chunk (0ms delay to keep CPU free)
+        // Keep loop running
         setTimeout(sendNextChunk, 0);
       };
 
       reader.readAsArrayBuffer(slice);
     };
 
-    // Ignite the loop
     sendNextChunk();
   };
 
@@ -253,7 +259,7 @@ export default function App() {
             <h1 className="text-4xl font-extrabold tracking-tight mb-2 text-white">
               <span className="text-blue-500">Vantal</span>Share
             </h1>
-            <p className="text-slate-400">Mark Cruz's Direct Link System (V2.5)</p>
+            <p className="text-slate-400">Mark Cruz's Direct Link System (V2.6 Robust)</p>
           </div>
 
           <div className="bg-slate-800 border-2 border-slate-700 rounded-3xl p-8 shadow-xl hover:border-blue-500 transition-colors">
@@ -328,7 +334,7 @@ export default function App() {
     );
   }
 
-  // --- HOST SCREEN (V2 Style - Simple List) ---
+  // --- HOST SCREEN ---
   if (role === 'host') {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-200 p-6 font-sans">
@@ -389,7 +395,7 @@ export default function App() {
     );
   }
 
-  // --- SENDER SCREEN (With Progress UI) ---
+  // --- SENDER SCREEN ---
   if (role === 'sender') {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 p-6 font-sans flex flex-col items-center justify-center">
@@ -421,7 +427,6 @@ export default function App() {
                 disabled={!conn || uploadProgress > 0} 
               />
               
-              {/* THE PROGRESS OVERLAY */}
               {uploadProgress > 0 ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/95 z-20">
                   <div className="w-24 h-24 relative mb-4">
