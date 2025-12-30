@@ -3,7 +3,6 @@ import {
   Wifi, 
   UploadCloud, 
   Download, 
-  File, 
   Monitor, 
   Smartphone, 
   Loader2,
@@ -11,7 +10,8 @@ import {
   Edit3,
   ArrowRight,
   CheckCircle2,
-  XCircle
+  XCircle,
+  AlertTriangle
 } from 'lucide-react';
 
 // --- PeerJS Loader ---
@@ -26,7 +26,6 @@ const loadPeerJS = () => {
   });
 };
 
-// Utility to format bytes
 const formatBytes = (bytes) => {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -44,9 +43,7 @@ export default function App() {
   const [error, setError] = useState('');
   
   // -- File Management --
-  const [files, setFiles] = useState([]); // For UI
-  
-  // We use refs for heavy data to avoid re-rendering React too often
+  const [files, setFiles] = useState([]); 
   const incomingFilesRef = useRef({}); 
   const peerEngine = useRef(null);
   
@@ -54,6 +51,10 @@ export default function App() {
   const [targetId, setTargetId] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [currentFileName, setCurrentFileName] = useState('');
+  const [sendingState, setSendingState] = useState('idle'); // idle, waiting_ack, sending, done
+
+  // We need to keep track of the file to send across re-renders for the ACK logic
+  const fileToSendRef = useRef(null);
 
   useEffect(() => {
     loadPeerJS().catch(err => console.error("PeerJS Load Error:", err));
@@ -89,7 +90,7 @@ export default function App() {
       setConn(connection);
       
       connection.on('data', (data) => {
-        handleIncomingData(data);
+        handleIncomingData(data, connection);
       });
       
       connection.on('close', () => {
@@ -108,22 +109,22 @@ export default function App() {
     peerEngine.current = peer;
   };
 
-  const handleIncomingData = (data) => {
-    // 1. HEADER: Start of a new file
+  const handleIncomingData = (data, connection) => {
+    // 1. HEADER: Sender wants to send a file
     if (data.type === 'HEADER') {
       const { id, name, size, type } = data;
       
-      // Initialize storage in Ref
+      // Initialize storage
       incomingFilesRef.current[id] = {
         name,
         size,
         type,
         receivedBytes: 0,
         chunks: [],
-        startTime: Date.now()
+        lastUpdate: Date.now()
       };
 
-      // Add to UI State (Progress 0%)
+      // Create UI Card
       setFiles(prev => [{
         id,
         name,
@@ -132,32 +133,35 @@ export default function App() {
         status: 'receiving',
         url: null
       }, ...prev]);
+
+      // CRITICAL: Send ACK back to Sender
+      console.log("Header received. Sending ACK.");
+      connection.send({ type: 'ACK', id: id });
     } 
     
-    // 2. CHUNK: Data piece
+    // 2. CHUNK: Actual Data
     else if (data.type === 'CHUNK') {
       const { id, chunk } = data;
       const fileMeta = incomingFilesRef.current[id];
       
       if (!fileMeta) return;
 
-      // Add chunk to memory
       fileMeta.chunks.push(chunk);
       fileMeta.receivedBytes += chunk.byteLength;
 
-      // Calculate Progress
-      const percent = Math.min(100, Math.round((fileMeta.receivedBytes / fileMeta.size) * 100));
+      // Throttle UI updates to every 500ms to save performance
+      const now = Date.now();
+      if (now - fileMeta.lastUpdate > 500 || fileMeta.receivedBytes === fileMeta.size) {
+        const percent = Math.min(100, Math.round((fileMeta.receivedBytes / fileMeta.size) * 100));
+        
+        setFiles(prev => prev.map(f => {
+          if (f.id === id) return { ...f, progress: percent };
+          return f;
+        }));
+        fileMeta.lastUpdate = now;
+      }
 
-      // Update UI (Throttle this in a real app, but ok for now)
-      setFiles(prev => prev.map(f => {
-        if (f.id === id) {
-          return { ...f, progress: percent };
-        }
-        return f;
-      }));
-
-      // 3. COMPLETE: If all bytes received
-      if (fileMeta.receivedBytes === fileMeta.size) {
+      if (fileMeta.receivedBytes >= fileMeta.size) {
         finalizeFile(id);
       }
     }
@@ -168,7 +172,6 @@ export default function App() {
     const blob = new Blob(meta.chunks, { type: meta.type });
     const url = URL.createObjectURL(blob);
 
-    // Update UI to "Complete"
     setFiles(prev => prev.map(f => {
       if (f.id === id) {
         return { 
@@ -180,9 +183,9 @@ export default function App() {
       }
       return f;
     }));
-
-    // Cleanup memory ref (optional, keeps chunks in Blob only)
-    delete incomingFilesRef.current[id];
+    
+    // Clear chunks from memory to free up RAM, but keep blob URL
+    incomingFilesRef.current[id].chunks = []; 
   };
 
   const destroyHost = () => {
@@ -214,6 +217,14 @@ export default function App() {
         setRole('sender');
       });
       
+      // Listen for ACKs
+      connection.on('data', (data) => {
+        if (data.type === 'ACK') {
+          console.log("ACK Received. Starting Transfer.");
+          startStreamingFile(connection, data.id);
+        }
+      });
+
       connection.on('error', () => setStatus('Connection Failed'));
       connection.on('close', () => {
         setStatus('Disconnected');
@@ -226,17 +237,19 @@ export default function App() {
     peer.on('error', () => setStatus('Shop not found.'));
   };
 
-  const sendFile = async (e) => {
+  const initiateSend = (e) => {
     const file = e.target.files[0];
     if (!file || !conn) return;
 
     setCurrentFileName(file.name);
     setUploadProgress(0);
+    setSendingState('waiting_ack');
+    fileToSendRef.current = file;
 
-    // Unique ID for this file transfer
+    // Unique ID
     const fileId = Math.random().toString(36).substr(2, 9);
-    
-    // 1. Send Header
+
+    // Send Header and Wait
     conn.send({
       type: 'HEADER',
       id: fileId,
@@ -244,59 +257,65 @@ export default function App() {
       size: file.size,
       type: file.type
     });
+  };
 
-    // 2. Chunking Logic
-    const CHUNK_SIZE = 16 * 1024; // 16KB chunks (Safe for PeerJS)
+  const startStreamingFile = (connection, fileId) => {
+    setSendingState('sending');
+    const file = fileToSendRef.current;
+    if (!file) return;
+
+    const CHUNK_SIZE = 16 * 1024; // 16KB
     let offset = 0;
 
-    // We use a simple recursive function to avoid freezing the UI loop
-    const sendNextChunk = () => {
-      if (offset >= file.size) {
-        setUploadProgress(100);
-        setTimeout(() => {
-            setUploadProgress(0);
-            setCurrentFileName('');
-        }, 2000);
+    const sendLoop = () => {
+      // Flow Control: Don't flood the connection
+      if (connection.dataChannel.bufferedAmount > 10 * 1024 * 1024) {
+        // If buffer is over 10MB, wait 50ms and try again
+        setTimeout(sendLoop, 50);
         return;
       }
 
-      // Slice the file
+      if (offset >= file.size) {
+        setUploadProgress(100);
+        setSendingState('done');
+        setTimeout(() => {
+            setSendingState('idle');
+            setUploadProgress(0);
+            setCurrentFileName('');
+        }, 3000);
+        return;
+      }
+
       const slice = file.slice(offset, offset + CHUNK_SIZE);
       const reader = new FileReader();
       
       reader.onload = (event) => {
-        if (!conn.open) return; // Stop if disconnected
+        if (!connection.open) return;
 
-        const chunk = event.target.result;
-        
-        conn.send({
+        connection.send({
           type: 'CHUNK',
           id: fileId,
-          chunk: chunk
+          chunk: event.target.result
         });
 
         offset += CHUNK_SIZE;
         const percent = Math.min(100, Math.round((offset / file.size) * 100));
         setUploadProgress(percent);
 
-        // Schedule next chunk (keeps UI responsive)
-        // For very fast connection, utilize requestAnimationFrame or setZeroTimeout
-        setTimeout(sendNextChunk, 0); 
+        // Keep loop going
+        setTimeout(sendLoop, 0); 
       };
 
       reader.readAsArrayBuffer(slice);
     };
 
-    // Start sending
-    sendNextChunk();
+    sendLoop();
   };
-
 
   // ============================
   // UI RENDERERS
   // ============================
 
-  // --- HOME SCREEN ---
   if (role === 'home') {
     return (
       <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center p-4 font-sans">
@@ -306,10 +325,9 @@ export default function App() {
             <h1 className="text-5xl font-extrabold tracking-tight mb-2 text-white">
               <span className="text-blue-500">Vantal</span>Share
             </h1>
-            <p className="text-slate-400">Mark Cruz's Direct Link System (V3)</p>
+            <p className="text-slate-400">Mark Cruz's Direct Link System (V4 Robust)</p>
           </div>
 
-          {/* Host Card */}
           <div className="bg-slate-800 border-2 border-slate-700 rounded-3xl p-8 shadow-xl hover:border-blue-500/50 transition-colors">
             <div className="flex items-center space-x-4 mb-6">
                 <div className="bg-blue-600 w-12 h-12 rounded-xl flex items-center justify-center shadow-lg shadow-blue-600/20">
@@ -346,7 +364,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Sender Card */}
           <div className="bg-slate-800 border-2 border-slate-700 rounded-3xl p-8 shadow-xl hover:border-emerald-500/50 transition-colors">
              <div className="flex items-center space-x-4 mb-6">
                 <div className="bg-emerald-600 w-12 h-12 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-600/20">
@@ -420,13 +437,10 @@ export default function App() {
 
            {files.map(file => (
              <div key={file.id} className="bg-slate-900 rounded-2xl p-5 border border-slate-800 relative overflow-hidden animate-in slide-in-from-bottom-2">
-                
-                {/* Progress Bar Background */}
                 <div 
-                  className="absolute bottom-0 left-0 h-1 bg-blue-600 transition-all duration-300" 
+                  className="absolute bottom-0 left-0 h-1 bg-blue-600 transition-all duration-500 ease-out" 
                   style={{ width: `${file.progress}%` }}
                 />
-
                 <div className="flex items-center justify-between relative z-10">
                    <div className="flex items-center space-x-4 overflow-hidden">
                       <div className={`p-3 rounded-xl flex-shrink-0 ${file.status === 'completed' ? 'bg-green-500/10 text-green-500' : 'bg-blue-500/10 text-blue-500'}`}>
@@ -478,7 +492,7 @@ export default function App() {
           <div className="mb-8">
             <label className={`
               relative block w-full aspect-square border-2 border-dashed rounded-3xl flex flex-col items-center justify-center cursor-pointer transition-all duration-300 overflow-hidden
-              ${uploadProgress > 0 
+              ${sendingState !== 'idle'
                   ? 'border-blue-500 bg-blue-50' 
                   : conn 
                     ? 'border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 hover:shadow-lg hover:-translate-y-1' 
@@ -488,11 +502,11 @@ export default function App() {
               <input 
                 type="file" 
                 className="hidden" 
-                onChange={sendFile} 
-                disabled={!conn || uploadProgress > 0} 
+                onChange={initiateSend} 
+                disabled={!conn || sendingState !== 'idle'} 
               />
               
-              {uploadProgress > 0 ? (
+              {sendingState !== 'idle' ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/90 z-20">
                   <div className="w-24 h-24 relative mb-4">
                      <svg className="w-full h-full" viewBox="0 0 100 100">
@@ -502,7 +516,9 @@ export default function App() {
                      <div className="absolute inset-0 flex items-center justify-center font-bold text-blue-600 text-xl">{uploadProgress}%</div>
                   </div>
                   <p className="text-sm font-bold text-slate-600 truncate max-w-[80%] px-4">{currentFileName}</p>
-                  <p className="text-xs text-slate-400 mt-1">Sending Chunks...</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {sendingState === 'waiting_ack' ? 'Waiting for Receiver...' : 'Sending Data...'}
+                  </p>
                 </div>
               ) : (
                 <div className="text-center p-6">
@@ -534,4 +550,5 @@ export default function App() {
 
   return null;
 }
+
 
